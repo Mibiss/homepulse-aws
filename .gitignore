@@ -1,0 +1,39 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secrets and configuration
+config.env
+.env
+.env.*
+!.env.example
+
+# AWS IoT certificates and keys
+certificates/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# macOS
+.DS_Store
+
+# Logs and generated data
+*.log
+logs/
+data/
+
+# IDE settings
+.vscode/
+.idea/
+
+# Terraform local state — for later
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
