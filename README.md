@@ -30,27 +30,9 @@ The current version stores each telemetry payload in Amazon DynamoDB through an 
 * [ ] Automated tests
 
 ## Architecture
+### HomePulse AWS — Current and Planned Architecture
 
-```text
-Home network
-    |
-Python monitoring agent
-    |
-MQTT over TLS
-    |
-AWS IoT Core
-    |
-AWS IoT Rule
-    |
-AWS Lambda
-    |
-    +--> Amazon DynamoDB
-    |
-    +--> Amazon CloudWatch custom metrics
-                    |
-                    v
-            CloudWatch dashboard
-```
+![HomePulse AWS architecture](architecture/architecture.png)
 
 Planned alerting architecture:
 
@@ -470,14 +452,24 @@ python-dotenv
 ## Repository structure
 
 ```text
-HomePulse_AWS/
+homepulse-aws/
 ├── README.md
 ├── agent.py
 ├── requirements.txt
 ├── config.env.example
 ├── .gitignore
 ├── certificates/
-└── .venv/
+├── .venv/
+├── agent.py 
+├── cloud/ 
+│   └── lambda/
+│       ├── README.md
+│       └── lambda_function.py 
+├── architecture/  
+│   ├── architecture.drawio 
+│   └── architecture.png 
+└── dashboard/ 
+    └── homepulse-dashboard.json
 ```
 
 The `certificates/`, `.venv/`, and local configuration files must not be committed to GitHub.
