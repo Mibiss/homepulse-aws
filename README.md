@@ -2,7 +2,7 @@
 
 HomePulse AWS is a home-network observability project that collects connectivity and system-health measurements from a macOS or Linux agent and publishes them securely to AWS IoT Core using MQTT over TLS.
 
-The current version stores each telemetry payload in Amazon DynamoDB through an AWS IoT Rule and AWS Lambda.
+The current version stores each telemetry payload in Amazon DynamoDB through an AWS IoT Rule and AWS Lambda. The Lambda function also publishes selected measurements as Amazon CloudWatch custom metrics for visualisation in a CloudWatch dashboard.
 
 ## Current status
 
@@ -20,8 +20,10 @@ The current version stores each telemetry payload in Amazon DynamoDB through an 
 * [x] Amazon DynamoDB telemetry storage
 * [x] Manual Lambda ingestion test
 * [x] End-to-end live telemetry test
-* [ ] CloudWatch custom metrics
-* [ ] CloudWatch dashboard
+* [x] DynamoDB telemetry queries
+* [x] CloudWatch custom metrics
+* [x] CloudWatch dashboard
+* [x] Five-minute dashboard aggregation
 * [ ] CloudWatch alarms
 * [ ] SNS notifications
 * [ ] Infrastructure as Code
@@ -42,10 +44,15 @@ AWS IoT Rule
     |
 AWS Lambda
     |
-Amazon DynamoDB
+    +--> Amazon DynamoDB
+    |
+    +--> Amazon CloudWatch custom metrics
+                    |
+                    v
+            CloudWatch dashboard
 ```
 
-Planned monitoring and alerting architecture:
+Planned alerting architecture:
 
 ```text
 Home monitoring agent
@@ -138,6 +145,8 @@ The Lambda function:
 * Validates the timestamp
 * Converts floating-point values to DynamoDB-compatible decimal values
 * Writes the complete telemetry document to DynamoDB
+* Publishes selected measurements to CloudWatch
+* Logs processing results and failures to CloudWatch Logs
 
 Function name:
 
@@ -147,7 +156,7 @@ homepulse-ingestion
 
 ### Amazon DynamoDB
 
-Telemetry is stored in:
+Raw telemetry is stored in:
 
 ```text
 homepulse-network-metrics
@@ -161,6 +170,24 @@ Sort key:      timestamp
 ```
 
 Each DynamoDB item represents one complete observation from the monitoring agent.
+
+DynamoDB stores the original nested network and system structures, allowing raw telemetry to be inspected and queried later.
+
+### Amazon CloudWatch
+
+The Lambda function publishes selected telemetry values to the custom CloudWatch namespace:
+
+```text
+HomePulse
+```
+
+CloudWatch is used for:
+
+* Current network status
+* Internet and DNS latency graphs
+* Internet packet-loss graphs
+* Monitoring-agent resource graphs
+* Future alarms and notifications
 
 ## Telemetry topic
 
@@ -184,7 +211,7 @@ Monitoring agent client ID:
 homepulse-agent-01
 ```
 
-Using different client IDs prevents the two MQTT connections from disconnecting each other.
+Using different client IDs prevents the browser and monitoring-agent connections from disconnecting each other.
 
 ## Example telemetry payload
 
@@ -259,6 +286,160 @@ represents a nested map.
 
 DynamoDB does not guarantee the display order of fields inside maps. The order of keys such as `internet`, `dns`, `livebox`, and `miwifi` may therefore differ between items without changing the meaning of the data.
 
+## DynamoDB queries
+
+Telemetry can be queried efficiently using:
+
+```text
+Partition key: device_id
+Sort key:      timestamp
+```
+
+Example PartiQL query for internet measurements:
+
+```sql
+SELECT
+    "timestamp",
+    "network"."internet"."latency_ms",
+    "network"."internet"."packet_loss_percent",
+    "network"."internet"."reachable"
+FROM "homepulse-network-metrics"
+WHERE "device_id" = 'homepulse-agent-01'
+ORDER BY "timestamp" DESC
+```
+
+Example DNS query:
+
+```sql
+SELECT
+    "timestamp",
+    "network"."dns"."success",
+    "network"."dns"."duration_ms"
+FROM "homepulse-network-metrics"
+WHERE "device_id" = 'homepulse-agent-01'
+ORDER BY "timestamp" DESC
+```
+
+Example system-health query:
+
+```sql
+SELECT
+    "timestamp",
+    "system"."cpu_percent",
+    "system"."memory_percent",
+    "system"."disk_percent"
+FROM "homepulse-network-metrics"
+WHERE "device_id" = 'homepulse-agent-01'
+ORDER BY "timestamp" DESC
+```
+
+## CloudWatch custom metrics
+
+The Lambda function publishes the following custom metrics:
+
+```text
+InternetReachable
+InternetLatency
+InternetPacketLoss
+LiveboxReachable
+MiWifiReachable
+DnsSuccess
+DnsDuration
+CpuPercent
+MemoryPercent
+DiskPercent
+```
+
+Metrics are published under:
+
+```text
+Namespace: HomePulse
+Dimension: DeviceId=homepulse-agent-01
+```
+
+Metric units:
+
+```text
+InternetReachable     Count
+InternetLatency       Milliseconds
+InternetPacketLoss    Percent
+LiveboxReachable      Count
+MiWifiReachable       Count
+DnsSuccess            Count
+DnsDuration           Milliseconds
+CpuPercent            Percent
+MemoryPercent         Percent
+DiskPercent           Percent
+```
+
+Boolean status values are represented numerically:
+
+```text
+1 = available or successful
+0 = unavailable or failed
+```
+
+## CloudWatch dashboard
+
+Dashboard name:
+
+```text
+HomePulse-Network-Dashboard
+```
+
+The dashboard currently contains:
+
+* Current network status
+* Internet latency
+* DNS response duration
+* Internet packet loss
+* Monitoring-agent CPU usage
+* Monitoring-agent memory usage
+* Monitoring-agent disk usage
+* Project and metric information
+
+### Dashboard periods and statistics
+
+The monitoring loop performs several network tests before sleeping for 60 seconds. The actual interval between messages can therefore be slightly longer than one minute.
+
+To avoid gaps caused by one-minute CloudWatch buckets, the dashboard uses five-minute periods.
+
+Latency and resource metrics use:
+
+```text
+Period:    5 minutes
+Statistic: Average
+```
+
+This applies to:
+
+```text
+InternetLatency
+DnsDuration
+InternetPacketLoss
+CpuPercent
+MemoryPercent
+DiskPercent
+```
+
+Status metrics use:
+
+```text
+Period:    5 minutes
+Statistic: Minimum
+```
+
+This applies to:
+
+```text
+InternetReachable
+LiveboxReachable
+MiWifiReachable
+DnsSuccess
+```
+
+Using `Minimum` ensures that a single failed status reading during a five-minute period remains visible.
+
 ## Requirements
 
 * macOS or Linux
@@ -269,6 +450,7 @@ DynamoDB does not guarantee the display order of fields inside maps. The order o
 * Restricted AWS IoT policy
 * AWS Lambda function
 * Amazon DynamoDB table
+* Amazon CloudWatch custom namespace
 * Network access to the local router and access point
 
 Python dependencies are listed in:
@@ -368,13 +550,13 @@ The agent then prints and publishes a telemetry payload.
 
 ## Collection interval
 
-The configured interval is:
+The configured sleep interval is:
 
 ```text
 60 seconds
 ```
 
-The actual gap between DynamoDB items may be slightly longer than 60 seconds because the agent first performs:
+The actual gap between DynamoDB and CloudWatch observations may be slightly longer because the agent first performs:
 
 * Internet ping tests
 * Router ping tests
@@ -384,15 +566,17 @@ The actual gap between DynamoDB items may be slightly longer than 60 seconds bec
 
 It then sleeps for 60 seconds.
 
-The full cycle is therefore approximately:
+The complete cycle is approximately:
 
 ```text
 metric collection time + 60-second sleep
 ```
 
+The dashboard uses five-minute periods to account for this collection behaviour.
+
 ## AWS IoT policy
 
-The policy should allow the agent to connect only with its expected client ID and publish only to its own telemetry topics.
+The IoT policy allows the agent to connect only with its expected client ID and publish only to its own telemetry topics.
 
 Example:
 
@@ -427,11 +611,9 @@ The Lambda function uses:
 DYNAMODB_TABLE=homepulse-network-metrics
 ```
 
-## Lambda IAM permission
+## Lambda IAM permissions
 
-The Lambda execution role should only be allowed to write to the HomePulse DynamoDB table.
-
-Example policy:
+The Lambda execution role can write to the HomePulse DynamoDB table:
 
 ```json
 {
@@ -442,6 +624,27 @@ Example policy:
       "Effect": "Allow",
       "Action": "dynamodb:PutItem",
       "Resource": "arn:aws:dynamodb:eu-central-1:ACCOUNT_ID:table/homepulse-network-metrics"
+    }
+  ]
+}
+```
+
+The Lambda execution role can publish metrics only to the `HomePulse` CloudWatch namespace:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PublishHomePulseMetrics",
+      "Effect": "Allow",
+      "Action": "cloudwatch:PutMetricData",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "cloudwatch:namespace": "HomePulse"
+        }
+      }
     }
   ]
 }
@@ -459,6 +662,12 @@ The following tests have been completed successfully:
 * Live MQTT telemetry appeared automatically in DynamoDB
 * Multiple timestamped telemetry records were stored
 * Nested network and system maps were stored correctly
+* DynamoDB PartiQL queries returned nested measurements
+* Lambda published 10 CloudWatch custom metrics
+* CloudWatch custom namespace appeared
+* Live measurements appeared in CloudWatch
+* CloudWatch dashboard displayed network and system measurements
+* Five-minute dashboard periods reduced visual gaps
 
 Confirmed end-to-end data flow:
 
@@ -467,7 +676,11 @@ Mac monitoring agent
 → AWS IoT Core
 → AWS IoT Rule
 → AWS Lambda
-→ Amazon DynamoDB
+├── Amazon DynamoDB
+└── Amazon CloudWatch
+        |
+        v
+CloudWatch dashboard
 ```
 
 ## Security
@@ -530,7 +743,8 @@ crash.log
 The agent creates only an outbound TLS connection to AWS IoT Core. No inbound ports or router port-forwarding rules are required.
 
 ## Git workflow
-Completed commits:
+
+Completed milestones:
 
 ```text
 Build Python network telemetry agent
@@ -539,6 +753,10 @@ Add DynamoDB telemetry table
 Add Lambda telemetry ingestion
 Route IoT telemetry through Lambda
 Complete end-to-end DynamoDB ingestion
+Add DynamoDB telemetry queries
+Publish custom CloudWatch metrics
+Create HomePulse CloudWatch dashboard
+Configure five-minute dashboard aggregation
 ```
 
 ## Roadmap
@@ -551,7 +769,9 @@ Complete end-to-end DynamoDB ingestion
 * [x] AWS IoT Rule
 * [x] Lambda ingestion
 * [x] DynamoDB storage
-* [ ] CloudWatch dashboard
+* [x] DynamoDB queries
+* [x] CloudWatch custom metrics
+* [x] CloudWatch dashboard
 * [ ] Outage alarms
 * [ ] SNS email notifications
 * [ ] Project documentation polish
