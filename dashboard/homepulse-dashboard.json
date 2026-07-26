@@ -2,12 +2,13 @@
     "widgets": [
         {
             "type": "text",
-            "x": 10,
+            "x": 9,
             "y": 0,
-            "width": 5,
+            "width": 7,
             "height": 5,
             "properties": {
-                "markdown": "# HomePulse AWS\n\n**Device:** `homepulse-agent-01`  \n**Telemetry interval:** approximately 60–70 seconds  \n**Region:** `eu-central-1`\n\nStatus values:\n\n- `1` = available or successful\n- `0` = unavailable or failed"
+                "markdown": "# HomePulse AWS\n\n**Device:** `homepulse-agent-01`  \n**Telemetry interval:** approximately 60–70 seconds  \n**Region:** `eu-central-1`\n\nStatus values:\n\n- `1` = available or successful\n- `0` = unavailable or failed",
+                "background": "transparent"
             }
         },
         {
@@ -15,7 +16,7 @@
             "x": 12,
             "y": 5,
             "width": 12,
-            "height": 4,
+            "height": 5,
             "properties": {
                 "metrics": [
                     [ "HomePulse", "InternetPacketLoss", "DeviceId", "homepulse-agent-01", { "yAxis": "left", "id": "m1", "region": "eu-central-1" } ]
@@ -38,9 +39,9 @@
         {
             "type": "metric",
             "x": 0,
-            "y": 9,
+            "y": 10,
             "width": 12,
-            "height": 5,
+            "height": 6,
             "properties": {
                 "metrics": [
                     [ "HomePulse", "InternetLatency", "DeviceId", "homepulse-agent-01", { "region": "eu-central-1" } ],
@@ -59,28 +60,28 @@
             "x": 0,
             "y": 5,
             "width": 12,
-            "height": 4,
+            "height": 5,
             "properties": {
                 "metrics": [
-                    [ "HomePulse", "InternetReachable", "DeviceId", "homepulse-agent-01" ],
-                    [ ".", "LiveboxReachable", ".", "." ],
-                    [ ".", "MiWifiReachable", ".", "." ],
-                    [ ".", "DnsSuccess", ".", "." ]
+                    [ "HomePulse", "InternetReachable", "DeviceId", "homepulse-agent-01", { "region": "eu-central-1" } ],
+                    [ ".", "LiveboxReachable", ".", ".", { "region": "eu-central-1" } ],
+                    [ ".", "MiWifiReachable", ".", ".", { "region": "eu-central-1" } ],
+                    [ ".", "DnsSuccess", ".", ".", { "region": "eu-central-1" } ]
                 ],
                 "sparkline": true,
                 "view": "singleValue",
                 "region": "eu-central-1",
-                "period": 60,
-                "stat": "Average",
+                "period": 300,
+                "stat": "Minimum",
                 "title": "Current Network Status"
             }
         },
         {
             "type": "metric",
             "x": 12,
-            "y": 9,
+            "y": 10,
             "width": 12,
-            "height": 5,
+            "height": 6,
             "properties": {
                 "metrics": [
                     [ "HomePulse", "DiskPercent", "DeviceId", "homepulse-agent-01", { "region": "eu-central-1" } ],

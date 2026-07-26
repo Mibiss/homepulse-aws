@@ -24,17 +24,18 @@ The current version stores each telemetry payload in Amazon DynamoDB through an 
 * [x] CloudWatch custom metrics
 * [x] CloudWatch dashboard
 * [x] Five-minute dashboard aggregation
-* [ ] CloudWatch alarms
-* [ ] SNS notifications
+* [x] CloudWatch alarms
+* [x] Amazon SNS topic
+* [x] Email alert subscription
+* [x] Alarm and recovery notification tests
 * [ ] Infrastructure as Code
 * [ ] Automated tests
 
 ## Architecture
-### HomePulse AWS — Current and Planned Architecture
+
+### HomePulse AWS — Edge-to-cloud observability architecture
 
 ![HomePulse AWS architecture](architecture/architecture.png)
-
-Planned alerting architecture:
 
 ```text
 Home monitoring agent
@@ -49,20 +50,21 @@ AWS Lambda
         |
         +--> Amazon DynamoDB
         |
-        +--> CloudWatch metrics
+        +--> CloudWatch custom metrics
                   |
-                  v
-          CloudWatch dashboard
+                  +--> CloudWatch dashboard
                   |
-                  v
-          CloudWatch alarms
-                  |
-                  v
-              Amazon SNS
-                  |
-                  v
-           Email notification
+                  +--> CloudWatch alarms
+                              |
+                              v
+                         Amazon SNS
+                              |
+                              v
+                     Email notification
 ```
+
+The monitoring agent runs inside the home network and communicates with AWS through an outbound encrypted MQTT connection. No inbound router ports or port-forwarding rules are required.
+
 
 ## Project components
 
@@ -157,7 +159,7 @@ DynamoDB stores the original nested network and system structures, allowing raw 
 
 ### Amazon CloudWatch
 
-The Lambda function publishes selected telemetry values to the custom CloudWatch namespace:
+The Lambda function publishes selected telemetry values to the custom namespace:
 
 ```text
 HomePulse
@@ -169,7 +171,176 @@ CloudWatch is used for:
 * Internet and DNS latency graphs
 * Internet packet-loss graphs
 * Monitoring-agent resource graphs
-* Future alarms and notifications
+* Availability alarms
+* Missing-telemetry detection
+* Alarm recovery notifications
+
+### Amazon SNS
+
+CloudWatch sends alarm state-change notifications to an Amazon SNS topic,
+which delivers them to a confirmed email subscription.
+
+Topic name:
+
+```text
+homepulse-alerts
+```
+
+The email subscription was confirmed and tested with:
+
+* A direct SNS test message
+* Alarm notifications
+* Recovery notifications when alarm states returned to `OK`
+
+## CloudWatch alarms
+
+The following availability alarms have been configured and tested.
+A high-latency alarm is also documented as an optional future enhancement.
+
+### Agent telemetry missing
+
+Alarm name:
+
+```text
+HomePulse-Agent-Telemetry-Missing
+```
+
+Configuration:
+
+```text
+Metric:               InternetReachable
+Statistic:            Minimum
+Period:               5 minutes
+Datapoints to alarm:  1 out of 1
+Missing data:         Treat as breaching
+```
+
+This alarm detects when AWS stops receiving telemetry. Possible causes include:
+
+* The monitoring agent stopped
+* The Mac entered sleep mode
+* Wi-Fi disconnected
+* The home internet connection failed
+* The AWS IoT ingestion pipeline stopped processing events
+
+### Internet unavailable
+
+Alarm name:
+
+```text
+HomePulse-Internet-Unavailable
+```
+
+Configuration:
+
+```text
+Metric:               InternetReachable
+Condition:            Lower than 1
+Statistic:            Minimum
+Period:               5 minutes
+Datapoints to alarm:  1 out of 1
+Missing data:         Treat as missing
+```
+
+This alarm activates when the monitoring agent explicitly reports that the internet is unreachable.
+
+A complete internet failure may prevent the agent from publishing the failure to AWS. The missing-telemetry alarm therefore complements this alarm.
+
+### Xiaomi access point unavailable
+
+Alarm name:
+
+```text
+HomePulse-MiWifi-Unavailable
+```
+
+Configuration:
+
+```text
+Metric:               MiWifiReachable
+Condition:            Lower than 1
+Statistic:            Minimum
+Period:               5 minutes
+Datapoints to alarm:  1 out of 1
+Missing data:         Treat as missing
+```
+
+This alarm detects a Xiaomi access-point failure while the Livebox and internet connection may still be operational.
+
+### High internet latency
+
+Optional alarm name:
+
+```text
+HomePulse-High-Internet-Latency
+```
+
+Suggested configuration:
+
+```text
+Metric:               InternetLatency
+Condition:            Greater than 100 milliseconds
+Statistic:            Average
+Period:               5 minutes
+Datapoints to alarm:  2 out of 3
+Missing data:         Treat as missing
+```
+
+The latency threshold should be adjusted after observing the connection’s normal behaviour.
+
+## Alarm notification flow
+
+```text
+CloudWatch custom metric
+        |
+        v
+CloudWatch alarm
+        |
+        | ALARM or OK state change
+        v
+Amazon SNS
+        |
+        v
+Confirmed email subscription
+```
+
+Notifications are configured for:
+
+```text
+ALARM → failure notification
+OK    → recovery notification
+```
+
+CloudWatch sends notifications when an alarm changes state rather than sending a new message for every breaching datapoint.
+
+## Alarm testing completed
+
+The alerting system was tested successfully.
+
+### Xiaomi outage test
+
+Test procedure:
+
+1. Keep the monitoring agent running.
+2. Disconnect the Xiaomi access point.
+3. Confirm the agent reports `reachable: false`.
+4. Confirm the CloudWatch alarm changes from `OK` to `ALARM`.
+5. Confirm the SNS email notification arrives.
+6. Reconnect the Xiaomi access point.
+7. Confirm the alarm returns to `OK`.
+8. Confirm the recovery email arrives.
+
+### Missing-telemetry test
+
+Test procedure:
+
+1. Stop the monitoring agent.
+2. Wait for CloudWatch to evaluate a complete five-minute period without telemetry.
+3. Confirm the missing-telemetry alarm changes to `ALARM`.
+4. Confirm the SNS email notification arrives.
+5. Restart the monitoring agent.
+6. Confirm the alarm returns to `OK`.
+7. Confirm the recovery email arrives.
 
 ## Telemetry topic
 
@@ -430,9 +601,14 @@ Using `Minimum` ensures that a single failed status reading during a five-minute
 * AWS IoT Core Thing
 * Active AWS IoT certificate
 * Restricted AWS IoT policy
+* AWS IoT Rule
 * AWS Lambda function
 * Amazon DynamoDB table
 * Amazon CloudWatch custom namespace
+* Amazon CloudWatch dashboard
+* Amazon CloudWatch alarms
+* Amazon SNS topic
+* Confirmed SNS email subscription
 * Network access to the local router and access point
 
 Python dependencies are listed in:
@@ -458,21 +634,24 @@ homepulse-aws/
 ├── requirements.txt
 ├── config.env.example
 ├── .gitignore
-├── certificates/
-├── .venv/
-├── agent.py 
-├── cloud/ 
+├── cloud/
 │   └── lambda/
 │       ├── README.md
-│       └── lambda_function.py 
-├── architecture/  
-│   ├── architecture.drawio 
-│   └── architecture.png 
-└── dashboard/ 
+│       └── lambda_function.py
+├── architecture/
+│   ├── architecture.drawio # in progress
+│   └── architecture.png    # in progress
+└── dashboard/
     └── homepulse-dashboard.json
 ```
 
-The `certificates/`, `.venv/`, and local configuration files must not be committed to GitHub.
+The following local resources must not be committed:
+
+```text
+certificates/
+.venv/
+config.env
+```
 
 ## Local setup
 
@@ -660,6 +839,12 @@ The following tests have been completed successfully:
 * Live measurements appeared in CloudWatch
 * CloudWatch dashboard displayed network and system measurements
 * Five-minute dashboard periods reduced visual gaps
+* SNS direct test email arrived
+* Missing-telemetry alarm entered `ALARM`
+* Missing-telemetry recovery returned to `OK`
+* Xiaomi outage alarm entered `ALARM`
+* Xiaomi recovery returned to `OK`
+* Alarm and recovery emails were delivered successfully
 
 Confirmed end-to-end data flow:
 
@@ -670,25 +855,30 @@ Mac monitoring agent
 → AWS Lambda
 ├── Amazon DynamoDB
 └── Amazon CloudWatch
-        |
-        v
-CloudWatch dashboard
+        ├── Dashboard
+        └── Alarms
+              |
+              v
+         Amazon SNS
+              |
+              v
+      Email notification
 ```
 
 ## Security
 
-Never commit the following files:
+Never commit the following sensitive files:
 
 * Private keys
-* Device certificates
-* Root CA files
-* `config.env`
-* `.env` files
+* Local configuration containing real endpoints or addresses
 * AWS access keys
 * AWS secret access keys
 * AWS credential files
 * Terraform state files
 * Local virtual environments
+
+This project also keeps device certificates and CA files outside the repository
+to simplify certificate management.
 
 Recommended `.gitignore` entries:
 
@@ -749,6 +939,9 @@ Add DynamoDB telemetry queries
 Publish custom CloudWatch metrics
 Create HomePulse CloudWatch dashboard
 Configure five-minute dashboard aggregation
+Create SNS email notification topic
+Add CloudWatch availability alarms
+Test outage and recovery notifications
 ```
 
 ## Roadmap
@@ -764,9 +957,21 @@ Configure five-minute dashboard aggregation
 * [x] DynamoDB queries
 * [x] CloudWatch custom metrics
 * [x] CloudWatch dashboard
-* [ ] Outage alarms
-* [ ] SNS email notifications
+* [x] CloudWatch alarms
+* [x] SNS email notifications
+* [ ] Final architecture diagram
 * [ ] Project documentation polish
+
+### Version 2
+
+* Infrastructure as Code
+* Automated tests
+* Structured logging improvements
+* Lambda dead-letter handling
+* DynamoDB retention strategy
+* Dedicated heartbeat metric
+* CI pipeline
+* Automated deployment
 
 ## Licence
 
