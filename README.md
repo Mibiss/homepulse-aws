@@ -959,7 +959,7 @@ Test outage and recovery notifications
 * [x] CloudWatch dashboard
 * [x] CloudWatch alarms
 * [x] SNS email notifications
-* [ ] Final architecture diagram
+* [x] Final architecture diagram
 * [ ] Project documentation polish
 
 ### Version 2
