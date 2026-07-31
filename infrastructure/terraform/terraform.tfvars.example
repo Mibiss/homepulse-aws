@@ -1,0 +1,3 @@
+aws_region = "eu-central-1"
+environment = "prod"
+device_id = "homepulse-agent-01"

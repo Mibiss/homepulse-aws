@@ -31,9 +31,22 @@ data/
 .vscode/
 .idea/
 
-# Terraform local state — for later
+## Terraform
+.terraform/
 *.tfstate
 *.tfstate.*
-.terraform/
-.terraform.lock.hcl
+*.tfplan
 crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Local Terraform variables
+*.auto.tfvars
+*.auto.tfvars.json
+terraform.tfvars
+
+# Keep examples
+!terraform.tfvars.example
