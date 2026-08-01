@@ -1,0 +1,2 @@
+aws_region        = "eu-central-1"
+state_bucket_name = "homepulse-terraform-state-UNIQUE_SUFFIX"

@@ -54,3 +54,6 @@ terraform.tfvars
 # Terraform Lambda packages
 infrastructure/terraform/build/*
 !infrastructure/terraform/build/.gitkeep
+
+# Local Terraform backend configuration
+backend.hcl
