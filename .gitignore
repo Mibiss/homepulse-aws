@@ -50,3 +50,7 @@ terraform.tfvars
 
 # Keep examples
 !terraform.tfvars.example
+
+# Terraform Lambda packages
+infrastructure/terraform/build/*
+!infrastructure/terraform/build/.gitkeep
