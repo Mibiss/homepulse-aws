@@ -63,20 +63,23 @@ def ping_host(host: str, count: int = 4) -> dict[str, Any]:
 
     output = result.stdout + result.stderr
 
-    latency_match = re.search(
-        r"(?:avg|Average =)[^0-9]*([0-9.]+)",
+    unix_match = re.search(
+        r"=\s*[0-9.]+/([0-9.]+)/[0-9.]+/[0-9.]+\s*ms",
+        output,
+    )
+
+    windows_match = re.search(
+        r"Average\s*=\s*([0-9.]+)\s*ms",
         output,
         re.IGNORECASE,
     )
 
-    if not latency_match:
-        linux_match = re.search(
-            r"=\s*[0-9.]+/([0-9.]+)/[0-9.]+/",
-            output,
-        )
-        latency = float(linux_match.group(1)) if linux_match else None
+    if unix_match:
+        latency = float(unix_match.group(1))
+    elif windows_match:
+        latency = float(windows_match.group(1))
     else:
-        latency = float(latency_match.group(1))
+        latency = None
 
     loss_match = re.search(
         r"([0-9.]+)%\s*(?:packet\s*)?loss",

@@ -18,6 +18,6 @@ resource "aws_lambda_permission" "allow_iot" {
   function_name = aws_lambda_function.ingestion.function_name
   principal     = "iot.amazonaws.com"
 
-  source_arn = aws_iot_topic_rule.telemetry_ingestion.arn
+  source_arn     = aws_iot_topic_rule.telemetry_ingestion.arn
   source_account = data.aws_caller_identity.current.account_id
 }
