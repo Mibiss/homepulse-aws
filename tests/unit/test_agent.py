@@ -1,3 +1,5 @@
+import json
+import logging
 import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
@@ -117,3 +119,51 @@ def test_ping_host_handles_timeout(mock_run):
         "latency_ms": None,
         "packet_loss_percent": 100.0,
     }
+
+
+def test_json_formatter_produces_structured_log():
+    formatter = agent.JsonFormatter()
+
+    record = logging.LogRecord(
+        name="homepulse.agent",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="telemetry_collected",
+        args=(),
+        exc_info=None,
+    )
+
+    record.device_id = "homepulse-agent-01"
+    record.internet_reachable = True
+
+    parsed_log = json.loads(formatter.format(record))
+
+    assert parsed_log["level"] == "INFO"
+    assert parsed_log["event"] == "telemetry_collected"
+    assert parsed_log["logger"] == "homepulse.agent"
+    assert parsed_log["device_id"] == "homepulse-agent-01"
+    assert parsed_log["internet_reachable"] is True
+    assert "timestamp" in parsed_log
+
+
+@patch.object(agent.LOGGER, "warning")
+@patch("agent.subprocess.run")
+def test_ping_host_logs_timeout(mock_run, mock_warning):
+    mock_run.side_effect = subprocess.TimeoutExpired(
+        cmd=["ping"],
+        timeout=15,
+    )
+
+    result = agent.ping_host("192.0.2.1")
+
+    assert result["reachable"] is False
+
+    mock_warning.assert_called_once_with(
+        "ping_timeout",
+        extra={
+            "target": "192.0.2.1",
+            "count": 4,
+            "timeout_seconds": 15,
+        },
+    )

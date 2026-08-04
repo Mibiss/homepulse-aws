@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import logging
 import os
 import platform
 import re
@@ -19,6 +20,75 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.env")
 
 load_dotenv(CONFIG_PATH)
+
+
+class JsonFormatter(logging.Formatter):
+    """Format application logs as single-line JSON objects."""
+
+    RESERVED_FIELDS = {
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "module",
+        "msecs",
+        "message",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "thread",
+        "threadName",
+        "taskName",
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry: dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "event": record.getMessage(),
+            "logger": record.name,
+        }
+
+        for key, value in record.__dict__.items():
+            if key not in self.RESERVED_FIELDS and not key.startswith("_"):
+                log_entry[key] = value
+
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(
+            log_entry,
+            default=str,
+            separators=(",", ":"),
+        )
+
+
+def configure_logging() -> logging.Logger:
+    """Configure the HomePulse agent logger."""
+
+    logger = logging.getLogger("homepulse.agent")
+    logger.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
+    logger.propagate = False
+
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(JsonFormatter())
+        logger.addHandler(handler)
+
+    return logger
+
+
+LOGGER = configure_logging()
 
 
 def required_env(name: str) -> str:
@@ -55,6 +125,15 @@ def ping_host(host: str, count: int = 4) -> dict[str, Any]:
             check=False,
         )
     except subprocess.TimeoutExpired:
+        LOGGER.warning(
+            "ping_timeout",
+            extra={
+                "target": host,
+                "count": count,
+                "timeout_seconds": 15,
+            },
+        )
+
         return {
             "reachable": False,
             "latency_ms": None,
@@ -93,11 +172,23 @@ def ping_host(host: str, count: int = 4) -> dict[str, Any]:
         else (0.0 if result.returncode == 0 else 100.0)
     )
 
-    return {
+    ping_result = {
         "reachable": result.returncode == 0,
         "latency_ms": latency,
         "packet_loss_percent": packet_loss,
     }
+
+    if not ping_result["reachable"]:
+        LOGGER.warning(
+            "ping_failed",
+            extra={
+                "target": host,
+                "return_code": result.returncode,
+                "packet_loss_percent": packet_loss,
+            },
+        )
+
+    return ping_result
 
 
 def dns_lookup(domain: str = "example.com") -> dict[str, Any]:
@@ -112,7 +203,16 @@ def dns_lookup(domain: str = "example.com") -> dict[str, Any]:
             "duration_ms": duration_ms,
             "resolved_ip": resolved_ip,
         }
-    except socket.gaierror:
+
+    except socket.gaierror as exc:
+        LOGGER.warning(
+            "dns_lookup_failed",
+            extra={
+                "domain": domain,
+                "error_type": type(exc).__name__,
+            },
+        )
+
         return {
             "success": False,
             "duration_ms": None,
@@ -163,29 +263,104 @@ def create_connection():
 
 
 def main() -> None:
+    LOGGER.info(
+        "agent_starting",
+        extra={
+            "device_id": CLIENT_ID,
+            "collection_interval_seconds": INTERVAL,
+            "topic": TOPIC,
+        },
+    )
+
     mqtt_connection = create_connection()
 
-    print("Connecting to AWS IoT Core...")
-    mqtt_connection.connect().result()
-    print("Connected.")
-
     try:
+        mqtt_connection.connect().result()
+
+        LOGGER.info(
+            "mqtt_connected",
+            extra={
+                "device_id": CLIENT_ID,
+            },
+        )
+
         while True:
+            collection_started = time.perf_counter()
             payload = collect_metrics()
 
-            mqtt_connection.publish(
+            collection_duration_ms = round(
+                (time.perf_counter() - collection_started) * 1000,
+                2,
+            )
+
+            LOGGER.info(
+                "telemetry_collected",
+                extra={
+                    "device_id": payload["device_id"],
+                    "telemetry_timestamp": payload["timestamp"],
+                    "collection_duration_ms": collection_duration_ms,
+                    "internet_reachable": payload["network"]["internet"]["reachable"],
+                    "livebox_reachable": payload["network"]["livebox"]["reachable"],
+                    "miwifi_reachable": payload["network"]["miwifi"]["reachable"],
+                    "dns_success": payload["network"]["dns"]["success"],
+                },
+            )
+
+            publish_future, packet_id = mqtt_connection.publish(
                 topic=TOPIC,
                 payload=json.dumps(payload),
                 qos=mqtt.QoS.AT_LEAST_ONCE,
             )
 
-            print(json.dumps(payload, indent=2))
+            publish_future.result()
+
+            LOGGER.info(
+                "telemetry_published",
+                extra={
+                    "device_id": payload["device_id"],
+                    "telemetry_timestamp": payload["timestamp"],
+                    "topic": TOPIC,
+                    "packet_id": packet_id,
+                },
+            )
+
             time.sleep(INTERVAL)
 
     except KeyboardInterrupt:
-        print("Stopping agent...")
+        LOGGER.info(
+            "agent_stopping",
+            extra={
+                "device_id": CLIENT_ID,
+                "reason": "keyboard_interrupt",
+            },
+        )
+
+    except Exception:
+        LOGGER.exception(
+            "agent_unhandled_error",
+            extra={
+                "device_id": CLIENT_ID,
+            },
+        )
+        raise
+
     finally:
-        mqtt_connection.disconnect().result()
+        try:
+            mqtt_connection.disconnect().result()
+
+            LOGGER.info(
+                "mqtt_disconnected",
+                extra={
+                    "device_id": CLIENT_ID,
+                },
+            )
+        except Exception:
+            LOGGER.exception(
+                "mqtt_disconnect_failed",
+                extra={
+                    "device_id": CLIENT_ID,
+                },
+            )
 
 
 if __name__ == "__main__":
