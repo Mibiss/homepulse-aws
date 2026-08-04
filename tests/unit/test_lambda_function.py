@@ -36,6 +36,7 @@ def load_lambda_module():
                 "DYNAMODB_TABLE": "homepulse-network-metrics",
                 "METRIC_NAMESPACE": "HomePulse",
                 "ALLOWED_DEVICES": "homepulse-agent-01",
+                "RETENTION_DAYS": "90",
             },
             clear=False,
         ),
@@ -314,3 +315,79 @@ def test_lambda_handler_handles_cloudwatch_connection_failure():
     ]
 
     assert len(matching_calls) == 1
+
+
+def test_calculate_expiration_timestamp_uses_retention_days():
+    module = load_lambda_module()
+
+    telemetry_time = datetime(
+        2026,
+        8,
+        4,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    expiration = module.calculate_expiration_timestamp(telemetry_time)
+
+    expected = int((telemetry_time + timedelta(days=90)).timestamp())
+
+    assert expiration == expected
+
+
+def test_calculate_expiration_timestamp_uses_retention_days():
+    module = load_lambda_module()
+
+    telemetry_time = datetime(
+        2026,
+        8,
+        4,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    expiration = module.calculate_expiration_timestamp(telemetry_time)
+
+    expected = int((telemetry_time + timedelta(days=90)).timestamp())
+
+    assert expiration == expected
+
+
+def test_lambda_stores_expiration_timestamp():
+    module = load_lambda_module()
+    event = valid_event()
+
+    module.lambda_handler(event, None)
+
+    module.table.put_item.assert_called_once()
+
+    stored_item = module.table.put_item.call_args.kwargs["Item"]
+
+    assert "expires_at" in stored_item
+    assert isinstance(stored_item["expires_at"], int)
+
+
+def test_lambda_does_not_add_expiration_to_input_event():
+    module = load_lambda_module()
+    event = valid_event()
+
+    module.lambda_handler(event, None)
+
+    assert "expires_at" not in event
+
+
+def test_stored_expiration_is_90_days_after_telemetry():
+    module = load_lambda_module()
+    event = valid_event()
+
+    module.lambda_handler(event, None)
+
+    stored_item = module.table.put_item.call_args.kwargs["Item"]
+
+    telemetry_time = datetime.fromisoformat(event["timestamp"].replace("Z", "+00:00"))
+
+    expected_expiration = int((telemetry_time + timedelta(days=90)).timestamp())
+
+    assert stored_item["expires_at"] == expected_expiration

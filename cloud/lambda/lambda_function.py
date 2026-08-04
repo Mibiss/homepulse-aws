@@ -8,7 +8,7 @@ custom metrics.
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -17,6 +17,10 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 TABLE_NAME = os.environ["DYNAMODB_TABLE"]
 METRIC_NAMESPACE = os.getenv("METRIC_NAMESPACE", "HomePulse")
+RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "90"))
+
+if RETENTION_DAYS <= 0:
+    raise RuntimeError("RETENTION_DAYS must be greater than zero")
 
 ALLOWED_DEVICES = {
     device_id.strip()
@@ -77,6 +81,16 @@ class JsonFormatter(logging.Formatter):
             default=str,
             separators=(",", ":"),
         )
+
+
+def calculate_expiration_timestamp(
+    telemetry_timestamp: datetime,
+) -> int:
+    """Return the DynamoDB TTL timestamp for a telemetry item."""
+
+    expiration = telemetry_timestamp + timedelta(days=RETENTION_DAYS)
+
+    return int(expiration.timestamp())
 
 
 LOGGER = logging.getLogger("homepulse.ingestion")
@@ -375,12 +389,14 @@ def aws_error_details(exc: Exception) -> dict[str, Any]:
     return details
 
 
-def store_telemetry(event: dict[str, Any]) -> None:
-    """Store one complete telemetry event in DynamoDB."""
+def store_telemetry(
+    event: dict[str, Any],
+    expiration_timestamp: int,
+) -> None:
+    item = convert_floats(event.copy())
+    item["expires_at"] = expiration_timestamp
 
-    table.put_item(
-        Item=convert_floats(event),
-    )
+    table.put_item(Item=item)
 
 
 def lambda_handler(
@@ -423,7 +439,24 @@ def lambda_handler(
     device_id = event["device_id"]
 
     try:
-        store_telemetry(event)
+        expiration_timestamp = calculate_expiration_timestamp(parsed_timestamp)
+
+        store_telemetry(
+            event,
+            expiration_timestamp,
+        )
+
+        LOGGER.info(
+            "telemetry_stored",
+            extra={
+                "request_id": request_id,
+                "device_id": device_id,
+                "telemetry_timestamp": event["timestamp"],
+                "table_name": TABLE_NAME,
+                "expires_at": expiration_timestamp,
+                "retention_days": RETENTION_DAYS,
+            },
+        )
 
     except (ClientError, BotoCoreError) as exc:
         LOGGER.exception(
