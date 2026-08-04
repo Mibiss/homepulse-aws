@@ -90,3 +90,51 @@ resource "aws_cloudwatch_metric_alarm" "miwifi_unavailable" {
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
 }
+
+resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
+  alarm_name        = "HomePulse-Lambda-Errors"
+  alarm_description = "HomePulse ingestion Lambda reported one or more errors."
+
+  namespace   = "AWS/Lambda"
+  metric_name = "Errors"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.ingestion.function_name
+  }
+
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  threshold           = 1
+
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
+  alarm_name        = "HomePulse-Lambda-Throttles"
+  alarm_description = "HomePulse ingestion Lambda invocations were throttled."
+
+  namespace   = "AWS/Lambda"
+  metric_name = "Throttles"
+
+  dimensions = {
+    FunctionName = aws_lambda_function.ingestion.function_name
+  }
+
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  threshold           = 1
+
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}

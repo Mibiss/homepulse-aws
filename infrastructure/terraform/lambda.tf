@@ -32,3 +32,16 @@ resource "aws_lambda_function" "ingestion" {
     }
   }
 }
+
+resource "aws_lambda_function_event_invoke_config" "ingestion" {
+  function_name = aws_lambda_function.ingestion.function_name
+
+  maximum_retry_attempts       = 2
+  maximum_event_age_in_seconds = 3600
+
+  destination_config {
+    on_failure {
+      destination = aws_sqs_queue.lambda_failures.arn
+    }
+  }
+}

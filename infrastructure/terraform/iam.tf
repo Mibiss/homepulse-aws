@@ -63,3 +63,25 @@ resource "aws_iam_role_policy_attachment" "lambda_logging" {
   role       = aws_iam_role.lambda_execution.name
   policy_arn = local.lambda_logging_policy_arn
 }
+
+data "aws_iam_policy_document" "lambda_failure_queue" {
+  statement {
+    sid    = "SendLambdaFailuresToSqs"
+    effect = "Allow"
+
+    actions = [
+      "sqs:SendMessage",
+    ]
+
+    resources = [
+      aws_sqs_queue.lambda_failures.arn,
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_failure_queue" {
+  name = "HomePulseLambdaFailureQueuePolicy"
+  role = aws_iam_role.lambda_execution.id
+
+  policy = data.aws_iam_policy_document.lambda_failure_queue.json
+}
