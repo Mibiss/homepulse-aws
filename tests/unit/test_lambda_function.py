@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from botocore.exceptions import ClientError, EndpointConnectionError
 
 LAMBDA_FILE = (
     Path(__file__).resolve().parents[2] / "cloud" / "lambda" / "lambda_function.py"
@@ -47,6 +48,26 @@ def load_lambda_module():
     module.cloudwatch = mock_cloudwatch
 
     return module
+
+
+def client_error(
+    operation_name: str,
+    code: str,
+    message: str,
+) -> ClientError:
+    return ClientError(
+        error_response={
+            "Error": {
+                "Code": code,
+                "Message": message,
+            },
+            "ResponseMetadata": {
+                "RequestId": "aws-test-request",
+                "HTTPStatusCode": 400,
+            },
+        },
+        operation_name=operation_name,
+    )
 
 
 def valid_event():
@@ -218,3 +239,78 @@ def test_unknown_device_logs_validation_failure():
     assert log_event == "telemetry_validation_failed"
     assert log_fields["device_id"] == "unknown-device"
     assert log_fields["error_type"] == "ValueError"
+
+
+def test_lambda_handler_reraises_dynamodb_failure():
+    module = load_lambda_module()
+
+    module.table.put_item.side_effect = client_error(
+        operation_name="PutItem",
+        code="AccessDeniedException",
+        message="Access denied",
+    )
+
+    with patch.object(module.LOGGER, "exception") as mock_exception:
+        with pytest.raises(ClientError):
+            module.lambda_handler(valid_event(), None)
+
+    module.cloudwatch.put_metric_data.assert_not_called()
+
+    mock_exception.assert_called_once()
+
+    assert mock_exception.call_args.args[0] == ("dynamodb_write_failed")
+
+    fields = mock_exception.call_args.kwargs["extra"]
+
+    assert fields["aws_error_code"] == "AccessDeniedException"
+    assert fields["table_name"] == "homepulse-network-metrics"
+
+
+def test_lambda_handler_reraises_cloudwatch_failure():
+    module = load_lambda_module()
+
+    module.cloudwatch.put_metric_data.side_effect = client_error(
+        operation_name="PutMetricData",
+        code="AccessDenied",
+        message="CloudWatch access denied",
+    )
+
+    with patch.object(module.LOGGER, "exception") as mock_exception:
+        with pytest.raises(ClientError):
+            module.lambda_handler(valid_event(), None)
+
+    module.table.put_item.assert_called_once()
+    module.cloudwatch.put_metric_data.assert_called_once()
+
+    matching_calls = [
+        call
+        for call in mock_exception.call_args_list
+        if call.args[0] == "cloudwatch_publish_failed"
+    ]
+
+    assert len(matching_calls) == 1
+
+    fields = matching_calls[0].kwargs["extra"]
+
+    assert fields["aws_error_code"] == "AccessDenied"
+    assert fields["metric_namespace"] == "HomePulse"
+
+
+def test_lambda_handler_handles_cloudwatch_connection_failure():
+    module = load_lambda_module()
+
+    module.cloudwatch.put_metric_data.side_effect = EndpointConnectionError(
+        endpoint_url="https://monitoring.eu-central-1.amazonaws.com"
+    )
+
+    with patch.object(module.LOGGER, "exception") as mock_exception:
+        with pytest.raises(EndpointConnectionError):
+            module.lambda_handler(valid_event(), None)
+
+    matching_calls = [
+        call
+        for call in mock_exception.call_args_list
+        if call.args[0] == "cloudwatch_publish_failed"
+    ]
+
+    assert len(matching_calls) == 1

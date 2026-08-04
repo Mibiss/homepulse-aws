@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import Any
 
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 
 TABLE_NAME = os.environ["DYNAMODB_TABLE"]
 METRIC_NAMESPACE = os.getenv("METRIC_NAMESPACE", "HomePulse")
@@ -235,9 +236,12 @@ def append_metric(
     """Append a metric only when its value is available and numeric."""
 
     if value is None:
-        LOGGER.warning(
-            "Skipping metric %s because its value is null",
-            name,
+        LOGGER.info(
+            "metric_skipped",
+            extra={
+                "metric_name": name,
+                "reason": "value_is_null",
+            },
         )
         return
 
@@ -344,12 +348,39 @@ def publish_cloudwatch_metrics(
         MetricData=metric_data,
     )
 
-    cloudwatch.put_metric_data(
-        Namespace=METRIC_NAMESPACE,
-        MetricData=metric_data,
-    )
-
     return len(metric_data)
+
+
+def aws_error_details(exc: Exception) -> dict[str, Any]:
+    """Extract safe diagnostic fields from an AWS SDK exception."""
+
+    details: dict[str, Any] = {
+        "error_type": type(exc).__name__,
+    }
+
+    if isinstance(exc, ClientError):
+        response = exc.response
+        error = response.get("Error", {})
+        metadata = response.get("ResponseMetadata", {})
+
+        details.update(
+            {
+                "aws_error_code": error.get("Code"),
+                "aws_error_message": error.get("Message"),
+                "aws_request_id": metadata.get("RequestId"),
+                "http_status_code": metadata.get("HTTPStatusCode"),
+            }
+        )
+
+    return details
+
+
+def store_telemetry(event: dict[str, Any]) -> None:
+    """Store one complete telemetry event in DynamoDB."""
+
+    table.put_item(
+        Item=convert_floats(event),
+    )
 
 
 def lambda_handler(
@@ -360,76 +391,104 @@ def lambda_handler(
 
     request_id = getattr(context, "aws_request_id", "local-test")
 
+    safe_device_id = event.get("device_id") if isinstance(event, dict) else None
+
+    safe_timestamp = event.get("timestamp") if isinstance(event, dict) else None
+
     LOGGER.info(
         "telemetry_processing_started",
         extra={
             "request_id": request_id,
-            "device_id": (event.get("device_id") if isinstance(event, dict) else None),
-            "telemetry_timestamp": (
-                event.get("timestamp") if isinstance(event, dict) else None
-            ),
+            "device_id": safe_device_id,
+            "telemetry_timestamp": safe_timestamp,
         },
     )
 
     try:
         parsed_timestamp = validate_event(event)
-        device_id = event["device_id"]
 
-        table.put_item(
-            Item=convert_floats(event),
-        )
-
-        LOGGER.info(
-            "telemetry_stored",
-            extra={
-                "request_id": request_id,
-                "device_id": device_id,
-                "telemetry_timestamp": event["timestamp"],
-                "table_name": TABLE_NAME,
-            },
-        )
-
-        metrics_published = publish_cloudwatch_metrics(
-            event,
-            parsed_timestamp,
-        )
-
-        LOGGER.info(
-            "metrics_published",
-            extra={
-                "request_id": request_id,
-                "device_id": device_id,
-                "metric_namespace": METRIC_NAMESPACE,
-                "metric_count": metrics_published,
-            },
-        )
-
-    except ValueError as exc:
+    except (KeyError, TypeError, ValueError) as exc:
         LOGGER.warning(
             "telemetry_validation_failed",
             extra={
                 "request_id": request_id,
-                "device_id": (
-                    event.get("device_id") if isinstance(event, dict) else None
-                ),
+                "device_id": safe_device_id,
+                "telemetry_timestamp": safe_timestamp,
                 "error_type": type(exc).__name__,
                 "error_message": str(exc),
             },
         )
         raise
 
-    except Exception as exc:
+    device_id = event["device_id"]
+
+    try:
+        store_telemetry(event)
+
+    except (ClientError, BotoCoreError) as exc:
         LOGGER.exception(
-            "telemetry_processing_failed",
+            "dynamodb_write_failed",
             extra={
                 "request_id": request_id,
-                "device_id": (
-                    event.get("device_id") if isinstance(event, dict) else None
-                ),
-                "error_type": type(exc).__name__,
+                "device_id": device_id,
+                "telemetry_timestamp": event["timestamp"],
+                "table_name": TABLE_NAME,
+                **aws_error_details(exc),
             },
         )
         raise
+
+    LOGGER.info(
+        "telemetry_stored",
+        extra={
+            "request_id": request_id,
+            "device_id": device_id,
+            "telemetry_timestamp": event["timestamp"],
+            "table_name": TABLE_NAME,
+        },
+    )
+
+    try:
+        metrics_published = publish_cloudwatch_metrics(
+            event,
+            parsed_timestamp,
+        )
+
+    except (ClientError, BotoCoreError) as exc:
+        LOGGER.exception(
+            "cloudwatch_publish_failed",
+            extra={
+                "request_id": request_id,
+                "device_id": device_id,
+                "telemetry_timestamp": event["timestamp"],
+                "metric_namespace": METRIC_NAMESPACE,
+                **aws_error_details(exc),
+            },
+        )
+        raise
+
+    except (KeyError, TypeError, ValueError) as exc:
+        LOGGER.warning(
+            "metric_validation_failed",
+            extra={
+                "request_id": request_id,
+                "device_id": device_id,
+                "telemetry_timestamp": event["timestamp"],
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            },
+        )
+        raise
+
+    LOGGER.info(
+        "metrics_published",
+        extra={
+            "request_id": request_id,
+            "device_id": device_id,
+            "metric_namespace": METRIC_NAMESPACE,
+            "metric_count": metrics_published,
+        },
+    )
 
     LOGGER.info(
         "telemetry_processing_succeeded",
