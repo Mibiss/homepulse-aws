@@ -14,9 +14,6 @@ from typing import Any
 
 import boto3
 
-LOGGER = logging.getLogger()
-LOGGER.setLevel(logging.INFO)
-
 TABLE_NAME = os.environ["DYNAMODB_TABLE"]
 METRIC_NAMESPACE = os.getenv("METRIC_NAMESPACE", "HomePulse")
 
@@ -28,6 +25,70 @@ ALLOWED_DEVICES = {
     ).split(",")
     if device_id.strip()
 }
+
+
+class JsonFormatter(logging.Formatter):
+    """Format Lambda application logs as JSON."""
+
+    RESERVED_FIELDS = {
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "module",
+        "msecs",
+        "message",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "thread",
+        "threadName",
+        "taskName",
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry: dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "event": record.getMessage(),
+            "logger": record.name,
+        }
+
+        for key, value in record.__dict__.items():
+            if key not in self.RESERVED_FIELDS and not key.startswith("_"):
+                log_entry[key] = value
+
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(
+            log_entry,
+            default=str,
+            separators=(",", ":"),
+        )
+
+
+LOGGER = logging.getLogger("homepulse.ingestion")
+LOGGER.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
+LOGGER.propagate = False
+
+if LOGGER.handlers:
+    for handler in LOGGER.handlers:
+        handler.setFormatter(JsonFormatter())
+else:
+    handler = logging.StreamHandler()
+    handler.setFormatter(JsonFormatter())
+    LOGGER.addHandler(handler)
 
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table(TABLE_NAME)
@@ -283,6 +344,11 @@ def publish_cloudwatch_metrics(
         MetricData=metric_data,
     )
 
+    cloudwatch.put_metric_data(
+        Namespace=METRIC_NAMESPACE,
+        MetricData=metric_data,
+    )
+
     return len(metric_data)
 
 
@@ -295,19 +361,32 @@ def lambda_handler(
     request_id = getattr(context, "aws_request_id", "local-test")
 
     LOGGER.info(
-        "Processing telemetry request_id=%s device_id=%s timestamp=%s",
-        request_id,
-        event.get("device_id"),
-        event.get("timestamp"),
+        "telemetry_processing_started",
+        extra={
+            "request_id": request_id,
+            "device_id": (event.get("device_id") if isinstance(event, dict) else None),
+            "telemetry_timestamp": (
+                event.get("timestamp") if isinstance(event, dict) else None
+            ),
+        },
     )
 
     try:
         parsed_timestamp = validate_event(event)
+        device_id = event["device_id"]
 
-        # This write is idempotent because device_id and timestamp form the
-        # table's primary key. Duplicate IoT deliveries overwrite the same item.
         table.put_item(
             Item=convert_floats(event),
+        )
+
+        LOGGER.info(
+            "telemetry_stored",
+            extra={
+                "request_id": request_id,
+                "device_id": device_id,
+                "telemetry_timestamp": event["timestamp"],
+                "table_name": TABLE_NAME,
+            },
         )
 
         metrics_published = publish_cloudwatch_metrics(
@@ -315,31 +394,57 @@ def lambda_handler(
             parsed_timestamp,
         )
 
-    except (KeyError, TypeError, ValueError):
-        LOGGER.exception(
-            "Telemetry validation or processing failed request_id=%s",
-            request_id,
+        LOGGER.info(
+            "metrics_published",
+            extra={
+                "request_id": request_id,
+                "device_id": device_id,
+                "metric_namespace": METRIC_NAMESPACE,
+                "metric_count": metrics_published,
+            },
+        )
+
+    except ValueError as exc:
+        LOGGER.warning(
+            "telemetry_validation_failed",
+            extra={
+                "request_id": request_id,
+                "device_id": (
+                    event.get("device_id") if isinstance(event, dict) else None
+                ),
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            },
         )
         raise
 
-    except Exception:
+    except Exception as exc:
         LOGGER.exception(
-            "AWS service operation failed request_id=%s",
-            request_id,
+            "telemetry_processing_failed",
+            extra={
+                "request_id": request_id,
+                "device_id": (
+                    event.get("device_id") if isinstance(event, dict) else None
+                ),
+                "error_type": type(exc).__name__,
+            },
         )
         raise
 
     LOGGER.info(
-        "Telemetry processed request_id=%s device_id=%s " "metrics_published=%d",
-        request_id,
-        event["device_id"],
-        metrics_published,
+        "telemetry_processing_succeeded",
+        extra={
+            "request_id": request_id,
+            "device_id": device_id,
+            "telemetry_timestamp": event["timestamp"],
+            "metric_count": metrics_published,
+        },
     )
 
     return {
         "statusCode": 200,
         "request_id": request_id,
-        "device_id": event["device_id"],
+        "device_id": device_id,
         "timestamp": event["timestamp"],
         "dynamodb": "Telemetry stored successfully",
         "cloudwatch_metrics_published": metrics_published,

@@ -1,3 +1,5 @@
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 import importlib.util
 from pathlib import Path
@@ -165,3 +167,54 @@ def test_lambda_handler_rejects_missing_system():
 
     module.table.put_item.assert_not_called()
     module.cloudwatch.put_metric_data.assert_not_called()
+
+
+def test_lambda_json_formatter_produces_structured_log():
+    module = load_lambda_module()
+    formatter = module.JsonFormatter()
+
+    record = logging.LogRecord(
+        name="homepulse.ingestion",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="telemetry_processing_succeeded",
+        args=(),
+        exc_info=None,
+    )
+
+    record.request_id = "test-request-id"
+    record.device_id = "homepulse-agent-01"
+    record.metric_count = 10
+
+    parsed_log = json.loads(formatter.format(record))
+
+    assert parsed_log["level"] == "INFO"
+    assert parsed_log["event"] == "telemetry_processing_succeeded"
+    assert parsed_log["request_id"] == "test-request-id"
+    assert parsed_log["device_id"] == "homepulse-agent-01"
+    assert parsed_log["metric_count"] == 10
+    assert "timestamp" in parsed_log
+
+
+def test_unknown_device_logs_validation_failure():
+    module = load_lambda_module()
+
+    event = valid_event()
+    event["device_id"] = "unknown-device"
+
+    with patch.object(module.LOGGER, "warning") as mock_warning:
+        with pytest.raises(
+            ValueError,
+            match="Unknown or missing device_id",
+        ):
+            module.lambda_handler(event, None)
+
+    mock_warning.assert_called_once()
+
+    log_event = mock_warning.call_args.args[0]
+    log_fields = mock_warning.call_args.kwargs["extra"]
+
+    assert log_event == "telemetry_validation_failed"
+    assert log_fields["device_id"] == "unknown-device"
+    assert log_fields["error_type"] == "ValueError"

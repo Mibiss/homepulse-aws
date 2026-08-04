@@ -28,6 +28,7 @@ resource "aws_lambda_function" "ingestion" {
       DYNAMODB_TABLE   = aws_dynamodb_table.telemetry.name
       METRIC_NAMESPACE = "HomePulse"
       ALLOWED_DEVICES  = var.device_id
+      LOG_LEVEL        = "INFO"
     }
   }
 }
