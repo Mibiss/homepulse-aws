@@ -29,6 +29,7 @@ resource "aws_lambda_function" "ingestion" {
       METRIC_NAMESPACE = "HomePulse"
       ALLOWED_DEVICES  = var.device_id
       LOG_LEVEL        = "INFO"
+      RETENTION_DAYS   = "90"
     }
   }
 }
