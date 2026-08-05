@@ -101,6 +101,38 @@
                 },
                 "title": "Monitoring Agent Health"
             }
+        },
+        {
+            "type": "metric",
+            "x": 0,
+            "y": 16,
+            "width": 24,
+            "height": 5,
+            "properties": {
+                "metrics": [
+                    [
+                        "HomePulse",
+                        "AgentHeartbeat",
+                        "DeviceId",
+                        "homepulse-agent-01",
+                        {
+                            "region": "eu-central-1"
+                        }
+                    ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "eu-central-1",
+                "period": 300,
+                "stat": "Sum",
+                "title": "Agent Heartbeat",
+                "yAxis": {
+                    "left": {
+                        "min": 0,
+                        "showUnits": false
+                    }
+                }
+            }
         }
     ]
 }
