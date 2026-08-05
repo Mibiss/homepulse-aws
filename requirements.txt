@@ -1,3 +1,4 @@
 awsiotsdk
 psutil
 python-dotenv
+boto3
