@@ -293,6 +293,11 @@ def publish_cloudwatch_metrics(
 
     metric_definitions = [
         (
+            "AgentHeartbeat",
+            1,
+            "Count",
+        ),
+        (
             "InternetReachable",
             internet.get("reachable"),
             "Count",

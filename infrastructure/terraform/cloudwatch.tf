@@ -7,27 +7,27 @@ resource "aws_cloudwatch_dashboard" "network" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "agent_missing" {
-  alarm_name        = "HomePulse-Agent-Telemetry-Missing"
-  alarm_description = <<-EOT
-    Triggers when HomePulse telemetry is absent for a complete
-    five-minute period. Possible causes include the monitoring agent
-    stopping, the Mac sleeping, a network outage, or an ingestion failure.
-  EOT
+  alarm_name = "HomePulse-Agent-Telemetry-Missing"
+  alarm_description = (
+    "No HomePulse AgentHeartbeat metric was received for the expected period."
+  )
+
 
   namespace   = "HomePulse"
-  metric_name = "InternetReachable"
+  metric_name = "AgentHeartbeat"
 
   dimensions = {
     DeviceId = var.device_id
   }
 
   comparison_operator = "LessThanThreshold"
-  threshold           = 0
+  threshold           = 1
 
-  statistic           = "Minimum"
+  statistic = "Sum"
+
   period              = 300
-  evaluation_periods  = 1
-  datapoints_to_alarm = 1
+  evaluation_periods  = 2
+  datapoints_to_alarm = 2
 
   treat_missing_data = "breaching"
 

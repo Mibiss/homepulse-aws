@@ -207,7 +207,7 @@ def test_lambda_json_formatter_produces_structured_log():
 
     record.request_id = "test-request-id"
     record.device_id = "homepulse-agent-01"
-    record.metric_count = 10
+    record.metric_count = 11
 
     parsed_log = json.loads(formatter.format(record))
 
@@ -215,7 +215,7 @@ def test_lambda_json_formatter_produces_structured_log():
     assert parsed_log["event"] == "telemetry_processing_succeeded"
     assert parsed_log["request_id"] == "test-request-id"
     assert parsed_log["device_id"] == "homepulse-agent-01"
-    assert parsed_log["metric_count"] == 10
+    assert parsed_log["metric_count"] == 11
     assert "timestamp" in parsed_log
 
 
@@ -391,3 +391,34 @@ def test_stored_expiration_is_90_days_after_telemetry():
     expected_expiration = int((telemetry_time + timedelta(days=90)).timestamp())
 
     assert stored_item["expires_at"] == expected_expiration
+
+
+def test_lambda_publishes_agent_heartbeat():
+    module = load_lambda_module()
+
+    module.lambda_handler(valid_event(), None)
+
+    module.cloudwatch.put_metric_data.assert_called_once()
+
+    call_arguments = module.cloudwatch.put_metric_data.call_args.kwargs
+
+    assert call_arguments["Namespace"] == "HomePulse"
+
+    metric_data = call_arguments["MetricData"]
+
+    heartbeat_metrics = [
+        metric for metric in metric_data if metric["MetricName"] == "AgentHeartbeat"
+    ]
+
+    assert len(heartbeat_metrics) == 1
+
+    heartbeat = heartbeat_metrics[0]
+
+    assert heartbeat["Value"] == 1.0
+    assert heartbeat["Unit"] == "Count"
+    assert heartbeat["Dimensions"] == [
+        {
+            "Name": "DeviceId",
+            "Value": "homepulse-agent-01",
+        }
+    ]
