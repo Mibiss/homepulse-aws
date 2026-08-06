@@ -1,0 +1,131 @@
+name: Deploy HomePulse
+
+on:
+  workflow_run:
+    workflows:
+      - Continuous Integration
+    types:
+      - completed
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homepulse-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Terraform production deployment
+
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        github.event.workflow_run.conclusion == 'success'
+      }}
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out tested revision
+        uses: actions/checkout@v6
+        with:
+          ref: >-
+            ${{
+              github.event_name == 'workflow_run' &&
+              github.event.workflow_run.head_sha ||
+              github.sha
+            }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOYMENT_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: homepulse-github-deployment
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Initialize Terraform
+        working-directory: infrastructure/terraform
+        run: |
+          terraform init -input=false
+
+      - name: Check formatting
+        run: |
+          terraform fmt \
+            -check \
+            -diff \
+            -recursive \
+            infrastructure
+
+      - name: Validate Terraform
+        working-directory: infrastructure/terraform
+        run: |
+          terraform validate -no-color
+
+      - name: Create deployment plan
+        working-directory: infrastructure/terraform
+        run: |
+          terraform plan \
+            -input=false \
+            -no-color \
+            -out=deployment.tfplan
+
+      - name: Display deployment plan
+        working-directory: infrastructure/terraform
+        run: |
+          terraform show \
+            -no-color \
+            deployment.tfplan
+
+      - name: Apply deployment plan
+        working-directory: infrastructure/terraform
+        run: |
+         terraform apply \
+           -input=false \
+           -auto-approve \
+           deployment.tfplan
+
+      - name: Verify infrastructure convergence
+        working-directory: infrastructure/terraform
+        run: |
+          set +e
+
+          terraform plan \
+            -input=false \
+            -detailed-exitcode \
+            -no-color
+
+          exit_code=$?
+
+          if [ "$exit_code" -eq 0 ]; then
+            echo "Infrastructure matches the Terraform configuration."
+            exit 0
+          fi
+
+          if [ "$exit_code" -eq 2 ]; then
+            echo "Terraform detected changes immediately after deployment."
+            exit 1
+          fi
+
+          echo "Terraform plan failed."
+          exit 1
