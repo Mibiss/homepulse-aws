@@ -11,6 +11,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TERRAFORM_DIRECTORIES = [
     REPOSITORY_ROOT / "infrastructure" / "terraform",
     REPOSITORY_ROOT / "infrastructure" / "bootstrap" / "state-backend",
+    REPOSITORY_ROOT / "infrastructure" / "bootstrap" / "github-oidc",
 ]
 
 
