@@ -93,6 +93,11 @@ jobs:
         run: |
             terraform init -backend=false -input=false
 
+      - name: Initialize GitHub OIDC Terraform configuration
+        working-directory: infrastructure/bootstrap/github-oidc
+        run: |
+          terraform init -backend=false -input=false
+
       - name: Run Terraform integration tests
         run: |
           pytest tests/integration/test_terraform_configuration.py -v
@@ -136,6 +141,10 @@ jobs:
             -input=false
 
           terraform -chdir=infrastructure/bootstrap/state-backend init \
+            -backend=false \
+            -input=false
+
+          terraform -chdir=infrastructure/bootstrap/github-oidc init \
             -backend=false \
             -input=false
 
