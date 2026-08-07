@@ -1,1 +1,2 @@
 terraform_state_bucket_name = "replace-with-existing-state-bucket"
+github_oidc_subject = "repo:YOUR_OWNER@OWNER_ID/YOUR_REPO@REPO_ID:environment:production"
