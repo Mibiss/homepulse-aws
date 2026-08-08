@@ -97,7 +97,13 @@ jobs:
       - name: Initialize Terraform
         working-directory: infrastructure/terraform
         run: |
-          terraform init -input=false
+          terraform init \
+            -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ vars.TF_STATE_KEY }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
 
       - name: Check formatting
         run: |
