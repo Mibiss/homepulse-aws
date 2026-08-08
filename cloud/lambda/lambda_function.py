@@ -476,16 +476,6 @@ def lambda_handler(
         )
         raise
 
-    LOGGER.info(
-        "telemetry_stored",
-        extra={
-            "request_id": request_id,
-            "device_id": device_id,
-            "telemetry_timestamp": event["timestamp"],
-            "table_name": TABLE_NAME,
-        },
-    )
-
     try:
         metrics_published = publish_cloudwatch_metrics(
             event,

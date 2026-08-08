@@ -336,25 +336,6 @@ def test_calculate_expiration_timestamp_uses_retention_days():
     assert expiration == expected
 
 
-def test_calculate_expiration_timestamp_uses_retention_days():
-    module = load_lambda_module()
-
-    telemetry_time = datetime(
-        2026,
-        8,
-        4,
-        12,
-        0,
-        tzinfo=timezone.utc,
-    )
-
-    expiration = module.calculate_expiration_timestamp(telemetry_time)
-
-    expected = int((telemetry_time + timedelta(days=90)).timestamp())
-
-    assert expiration == expected
-
-
 def test_lambda_stores_expiration_timestamp():
     module = load_lambda_module()
     event = valid_event()

@@ -91,7 +91,7 @@ jobs:
       - name: Initialize bootstrap Terraform configuration
         working-directory: infrastructure/bootstrap/state-backend
         run: |
-            terraform init -backend=false -input=false
+          terraform init -backend=false -input=false
 
       - name: Initialize GitHub OIDC Terraform configuration
         working-directory: infrastructure/bootstrap/github-oidc
