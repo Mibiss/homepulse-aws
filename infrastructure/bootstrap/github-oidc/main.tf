@@ -148,7 +148,7 @@ data "aws_iam_policy_document" "homepulse_deployment" {
 
     resources = [
       "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/homepulse-*",
-      "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/homepulse-ingestion-role-sqlm07gg",
+      "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/service-role/homepulse-*",
       "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/HomePulse*",
     ]
   }
@@ -163,6 +163,7 @@ data "aws_iam_policy_document" "homepulse_deployment" {
 
     resources = [
       "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/homepulse-*",
+      "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/service-role/homepulse-*",
     ]
 
     condition {
