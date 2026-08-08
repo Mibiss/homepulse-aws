@@ -47,36 +47,6 @@ jobs:
               github.event.workflow_run.head_sha ||
               github.sha
             }}
-      - name: Inspect GitHub OIDC claims
-        shell: bash
-        run: |
-          response=$(curl -sS \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
-
-          token=$(echo "$response" | python3 -c \
-            'import json,sys; print(json.load(sys.stdin)["value"])')
-
-          payload=$(echo "$token" | cut -d. -f2)
-
-          python3 - "$payload" <<'PY'
-          import base64
-          import json
-          import sys
-
-          payload = sys.argv[1]
-          payload += "=" * (-len(payload) % 4)
-
-          claims = json.loads(
-              base64.urlsafe_b64decode(payload)
-          )
-
-          print("aud:", claims.get("aud"))
-          print("sub:", claims.get("sub"))
-          print("repository:", claims.get("repository"))
-          print("environment:", claims.get("environment"))
-          print("ref:", claims.get("ref"))
-          PY
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -136,10 +106,10 @@ jobs:
       - name: Apply deployment plan
         working-directory: infrastructure/terraform
         run: |
-         terraform apply \
-           -input=false \
-           -auto-approve \
-           deployment.tfplan
+          terraform apply \
+            -input=false \
+            -auto-approve \
+            deployment.tfplan
 
       - name: Verify infrastructure convergence
         working-directory: infrastructure/terraform
