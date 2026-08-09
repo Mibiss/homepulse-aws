@@ -102,6 +102,7 @@ data "aws_iam_policy_document" "homepulse_deployment" {
     actions = [
       "cloudwatch:DeleteAlarms",
       "cloudwatch:DescribeAlarms",
+      "cloudwatch:ListTagsForResource",
       "cloudwatch:PutMetricAlarm",
       "cloudwatch:TagResource",
       "cloudwatch:UntagResource",
