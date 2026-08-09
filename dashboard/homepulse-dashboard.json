@@ -7,7 +7,7 @@
             "width": 5,
             "height": 5,
             "properties": {
-                "markdown": "# HomePulse AWS\n\n**Device:** `homepulse-agent-01`  \n**Telemetry interval:** approximately 60–70 seconds  \n**Region:** `eu-central-1`\n\nStatus values:\n\n- `1` = available or successful\n- `0` = unavailable or failed",
+                "markdown": "# HomePulse AWS\n\n**Device:** `homepulse-agent-01`  \n**Telemetry interval:** approximately 60–70 seconds  \n**Region:** `eu-central-1`\n\nStatus values:\n\n- `1` = available or successful\n- `0` = unavailable or failed\n\nAgent Heartbeat:\n\n1-5 successful requests in 5 minutes period",
                 "background": "transparent"
             }
         },
