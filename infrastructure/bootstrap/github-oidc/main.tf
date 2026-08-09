@@ -145,6 +145,7 @@ data "aws_iam_policy_document" "homepulse_deployment" {
       "lambda:GetFunctionEventInvokeConfig",
       "lambda:GetPolicy",
       "lambda:ListTags",
+      "lambda:ListVersionsByFunction",
       "lambda:PutFunctionEventInvokeConfig",
       "lambda:RemovePermission",
       "lambda:TagResource",
