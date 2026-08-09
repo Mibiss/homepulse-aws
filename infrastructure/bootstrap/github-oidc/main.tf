@@ -100,13 +100,76 @@ data "aws_iam_policy_document" "homepulse_deployment" {
     effect = "Allow"
 
     actions = [
-      "cloudwatch:*",
-      "dynamodb:*",
-      "iot:*",
-      "lambda:*",
-      "logs:*",
-      "sns:*",
-      "sqs:*",
+      # CloudWatch dashboards and alarms
+      "cloudwatch:DeleteAlarms",
+      "cloudwatch:DeleteDashboards",
+      "cloudwatch:DescribeAlarms",
+      "cloudwatch:GetDashboard",
+      "cloudwatch:ListTagsForResource",
+      "cloudwatch:PutDashboard",
+      "cloudwatch:PutMetricAlarm",
+      "cloudwatch:TagResource",
+      "cloudwatch:UntagResource",
+
+      # DynamoDB table lifecycle
+      "dynamodb:CreateTable",
+      "dynamodb:DeleteTable",
+      "dynamodb:DescribeContinuousBackups",
+      "dynamodb:DescribeTable",
+      "dynamodb:DescribeTimeToLive",
+      "dynamodb:ListTagsOfResource",
+      "dynamodb:TagResource",
+      "dynamodb:UntagResource",
+      "dynamodb:UpdateContinuousBackups",
+      "dynamodb:UpdateTable",
+      "dynamodb:UpdateTimeToLive",
+
+      # IoT topic rule
+      "iot:CreateTopicRule",
+      "iot:DeleteTopicRule",
+      "iot:DisableTopicRule",
+      "iot:EnableTopicRule",
+      "iot:GetTopicRule",
+      "iot:ListTagsForResource",
+      "iot:ReplaceTopicRule",
+      "iot:TagResource",
+      "iot:UntagResource",
+
+      # Lambda lifecycle
+      "lambda:AddPermission",
+      "lambda:CreateFunction",
+      "lambda:DeleteFunction",
+      "lambda:DeleteFunctionEventInvokeConfig",
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+      "lambda:GetFunctionEventInvokeConfig",
+      "lambda:GetPolicy",
+      "lambda:ListTags",
+      "lambda:PutFunctionEventInvokeConfig",
+      "lambda:RemovePermission",
+      "lambda:TagResource",
+      "lambda:UntagResource",
+      "lambda:UpdateFunctionCode",
+      "lambda:UpdateFunctionConfiguration",
+
+      # SNS topic
+      "sns:CreateTopic",
+      "sns:DeleteTopic",
+      "sns:GetTopicAttributes",
+      "sns:ListTagsForResource",
+      "sns:SetTopicAttributes",
+      "sns:TagResource",
+      "sns:UntagResource",
+
+      # SQS queue
+      "sqs:CreateQueue",
+      "sqs:DeleteQueue",
+      "sqs:GetQueueAttributes",
+      "sqs:GetQueueUrl",
+      "sqs:ListQueueTags",
+      "sqs:SetQueueAttributes",
+      "sqs:TagQueue",
+      "sqs:UntagQueue",
     ]
 
     resources = [
