@@ -1,202 +1,122 @@
 # HomePulse AWS
 
-HomePulse AWS is an edge-to-cloud home-network observability project. A Python agent running on macOS or Linux collects connectivity and system-health measurements and publishes them securely to AWS IoT Core using MQTT over TLS.
+[![Continuous Integration](https://github.com/Mibiss/homepulse-aws/actions/workflows/ci.yml/badge.svg)](https://github.com/Mibiss/homepulse-aws/actions/workflows/ci.yml)
+[![Deploy HomePulse](https://github.com/Mibiss/homepulse-aws/actions/workflows/deploy.yaml/badge.svg)](https://github.com/Mibiss/homepulse-aws/actions/workflows/deploy.yaml)
 
-AWS IoT Core routes each telemetry payload to AWS Lambda. The Lambda function validates the message, stores the complete payload in Amazon DynamoDB, and publishes selected measurements as Amazon CloudWatch custom metrics. CloudWatch dashboards visualise system health, while CloudWatch alarms and Amazon SNS deliver outage and recovery notifications by email.
+HomePulse is a hybrid edge-to-cloud observability project for monitoring a home network with AWS. A Python agent collects network and host telemetry, publishes it to AWS IoT Core over MQTT with mutual TLS, and a serverless AWS backend validates, stores, monitors, and alerts on the data.
 
-## Current status
+Phase 2 evolved the project from a working cloud prototype into a more production-style implementation with Terraform, automated tests, structured logging, failure retention, data lifecycle controls, heartbeat monitoring, CI, and OIDC-based automated deployment.
 
-- [x] Python monitoring agent
-- [x] Internet latency and packet-loss checks
-- [x] Livebox reachability checks
-- [x] Xiaomi access-point reachability checks
-- [x] DNS response-time checks
-- [x] Local CPU, memory and disk metrics
-- [x] AWS IoT Core MQTT connection
-- [x] X.509 certificate authentication
-- [x] Least-privilege IoT publishing policy
-- [x] AWS IoT telemetry routing rule
-- [x] AWS Lambda ingestion
-- [x] Amazon DynamoDB telemetry storage
-- [x] Manual Lambda ingestion test
-- [x] End-to-end live telemetry test
-- [x] DynamoDB telemetry queries
-- [x] CloudWatch custom metrics
-- [x] CloudWatch dashboard
-- [x] Five-minute dashboard aggregation
-- [x] CloudWatch alarms
-- [x] Amazon SNS topic
-- [x] Email alert subscription
-- [x] Alarm and recovery notification tests
-- [ ] Infrastructure as Code
-- [ ] Automated tests
+## What the project demonstrates
+
+- Hybrid edge-to-cloud architecture
+- AWS IoT Core and MQTT over mutual TLS
+- Serverless event processing with AWS Lambda
+- DynamoDB data modelling, TTL retention, PITR and deletion protection
+- CloudWatch custom metrics, dashboards and alarms
+- SNS operational notifications
+- SQS failed-invocation retention
+- Infrastructure as Code with Terraform
+- Remote Terraform state in encrypted, versioned S3
+- Automated Python and Terraform testing
+- Structured JSON logging and failure classification
+- GitHub Actions CI/CD
+- AWS OIDC federation with short-lived STS credentials
+- Protected production deployments and post-deployment convergence checks
 
 ## Architecture
 
-### HomePulse AWS — Edge-to-cloud observability architecture
+### Runtime data path
 
-
-![HomePulse AWS architecture](architecture/architecture.png)
-
-
-```text
-Home monitoring agent
-        |
-        | MQTT over TLS
-        v
-AWS IoT Core
-        |
-        | IoT Rule
-        v
-AWS Lambda
-        |
-        +--> Amazon DynamoDB
-        |
-        +--> CloudWatch custom metrics
-                  |
-                  +--> CloudWatch dashboard
-                  |
-                  +--> CloudWatch alarms
-                              |
-                              v
-                         Amazon SNS
-                              |
-                              v
-                     Email notification
+```mermaid
+flowchart TD
+    A[Python monitoring agent] -->|MQTT over mTLS| B[AWS IoT Core]
+    B --> C[AWS IoT Rule]
+    C --> D[AWS Lambda ingestion]
+    D --> E[(Amazon DynamoDB)]
+    D --> F[CloudWatch custom metrics]
+    D -. exhausted async failures .-> G[Amazon SQS failure queue]
+    E --> H[TTL: 90 days]
+    E --> I[PITR: 35 days]
+    F --> J[CloudWatch dashboard]
+    F --> K[CloudWatch alarms]
+    K --> L[Amazon SNS]
+    L --> M[Email notification]
 ```
 
-The monitoring agent runs inside the home network and communicates with AWS through an outbound encrypted MQTT connection. No inbound router ports or port-forwarding rules are required.
+### Delivery path
 
+```mermaid
+flowchart TD
+    A[Feature branch / Pull request] --> B[GitHub Actions CI]
+    B --> C[Python tests]
+    B --> D[Terraform validation]
+    C --> E[Full test suite]
+    D --> E
+    E -->|CI succeeds on main| F[Deploy HomePulse workflow]
+    F --> G[Protected production environment]
+    G --> H[GitHub OIDC token]
+    H --> I[AWS STS temporary credentials]
+    I --> J[Terraform remote state in S3]
+    J --> K[Terraform plan]
+    K --> L[Apply saved plan]
+    L --> M[Post-deployment convergence check]
+```
 
-## Project components
+The monitoring agent only requires outbound connectivity to AWS. No inbound router ports or port-forwarding rules are required.
 
-### Monitoring agent
+## Monitoring agent
 
-The monitoring agent is a Python application running on macOS or Linux.
-
-It collects:
+`agent.py` runs on macOS or Linux and collects approximately once per minute:
 
 - Internet reachability
 - Internet latency
 - Internet packet loss
-- Livebox reachability
-- Livebox latency
-- Livebox packet loss
-- Xiaomi access-point reachability
-- Xiaomi access-point latency
-- Xiaomi access-point packet loss
-- DNS resolution status
-- DNS response time
-- Resolved IP address
-- Local CPU usage
-- Local memory usage
-- Local disk usage
-- Agent boot time
+- Orange Livebox reachability
+- Livebox latency and packet loss
+- Xiaomi/MiWiFi access-point reachability
+- MiWiFi latency and packet loss
+- DNS lookup success and duration
+- Resolved DNS IP address
+- CPU utilisation
+- Memory utilisation
+- Disk utilisation
+- Host boot time
 
-### AWS IoT Core
-
-AWS IoT Core receives telemetry from the monitoring agent over MQTT with TLS.
-
-The device authenticates using:
-
-- an AWS IoT device certificate
-- a private key stored locally
-- Amazon Root CA 1
-- a restricted AWS IoT policy
-
-### AWS IoT Rule
-
-The IoT Rule subscribes to the telemetry topic and invokes the Lambda ingestion function.
-
-Rule name:
-
-```text
-homepulse_telemetry_ingestion
-```
-
-Rule SQL:
-
-```sql
-SELECT *
-FROM 'homepulse/homepulse-agent-01/telemetry'
-```
-
-### AWS Lambda
-
-The `homepulse-ingestion` Lambda function:
-
-- validates incoming telemetry
-- stores the complete payload in DynamoDB
-- publishes selected CloudWatch custom metrics
-- logs processing results and failures
-
-Source code and detailed deployment documentation are available in [`cloud/lambda/`](cloud/lambda/).
-
-### Amazon DynamoDB
-
-Raw telemetry is stored in:
-
-```text
-homepulse-network-metrics
-```
-
-Table key structure:
-
-```text
-Partition key: device_id
-Sort key:      timestamp
-```
-
-Each DynamoDB item represents one complete observation from the monitoring agent.
-
-### Amazon CloudWatch
-
-The Lambda function publishes selected telemetry values to the custom namespace:
-
-```text
-HomePulse
-```
-
-CloudWatch is used for dashboards, availability alarms, missing-telemetry detection and recovery notifications.
-
-### Amazon SNS
-
-CloudWatch sends alarm state-change notifications to the `homepulse-alerts` SNS topic, which delivers them to a confirmed email subscription.
-
-## Telemetry topic
+The agent publishes JSON telemetry to:
 
 ```text
 homepulse/homepulse-agent-01/telemetry
 ```
 
-Use a different MQTT client ID for the browser test client and the monitoring agent to prevent them from disconnecting each other.
+Authentication uses an AWS IoT X.509 device certificate, private key, and Amazon Root CA.
 
-## Example telemetry payload
+## Telemetry example
 
 ```json
 {
   "schema_version": "1.0",
   "device_id": "homepulse-agent-01",
-  "timestamp": "2026-07-25T11:13:05.616259+00:00",
+  "timestamp": "2026-08-08T12:00:00+00:00",
   "network": {
     "internet": {
       "reachable": true,
-      "latency_ms": 11.964,
+      "latency_ms": 11.9,
       "packet_loss_percent": 0.0
     },
     "livebox": {
       "reachable": true,
-      "latency_ms": 3.133,
+      "latency_ms": 3.1,
       "packet_loss_percent": 0.0
     },
     "miwifi": {
       "reachable": true,
-      "latency_ms": 2.565,
+      "latency_ms": 2.5,
       "packet_loss_percent": 0.0
     },
     "dns": {
       "success": true,
-      "duration_ms": 24.29,
+      "duration_ms": 24.2,
       "resolved_ip": "104.20.23.154"
     }
   },
@@ -209,193 +129,408 @@ Use a different MQTT client ID for the browser test client and the monitoring ag
 }
 ```
 
-## DynamoDB queries
+## Lambda ingestion
 
-Example PartiQL query:
+`cloud/lambda/lambda_function.py` performs the serverless ingestion path.
 
-```sql
-SELECT
-    "timestamp",
-    "network"."internet"."latency_ms",
-    "network"."internet"."packet_loss_percent",
-    "network"."internet"."reachable"
-FROM "homepulse-network-metrics"
-WHERE "device_id" = 'homepulse-agent-01'
-ORDER BY "timestamp" DESC
-```
+It:
 
-## CloudWatch custom metrics
+1. validates the schema version, device ID, timestamp and required telemetry objects
+2. rejects timestamps more than 24 hours from the current time
+3. adds a DynamoDB `expires_at` TTL timestamp
+4. stores the complete telemetry event in DynamoDB
+5. publishes selected values as CloudWatch custom metrics
+6. emits structured JSON logs
+7. classifies DynamoDB, CloudWatch and validation failures
+8. re-raises failures so Lambda asynchronous retry handling remains effective
+
+### Lambda failure handling
+
+The asynchronous invocation configuration uses:
 
 ```text
-InternetReachable
-InternetLatency
-InternetPacketLoss
-LiveboxReachable
-MiWifiReachable
-DnsSuccess
-DnsDuration
-CpuPercent
-MemoryPercent
-DiskPercent
+Maximum retry attempts: 2
+Maximum event age:      3600 seconds
+On-failure destination: homepulse-lambda-failures (SQS)
 ```
 
-Metrics use:
+The SQS failure queue uses server-side encryption and retains failed invocation records for 14 days.
+
+## DynamoDB lifecycle
+
+Telemetry is stored in:
+
+```text
+Table:         homepulse-network-metrics
+Partition key: device_id
+Sort key:      timestamp
+```
+
+The table uses on-demand billing and includes:
+
+- 90-day TTL through the `expires_at` attribute
+- 35-day point-in-time recovery
+- deletion protection
+
+TTL controls normal telemetry retention, while PITR protects against accidental changes or deletion during the recovery window.
+
+## CloudWatch metrics
+
+Custom metrics are published under:
 
 ```text
 Namespace: HomePulse
 Dimension: DeviceId=homepulse-agent-01
 ```
 
-Boolean values are represented as `1` for available/successful and `0` for unavailable/failed.
+Metrics:
 
-## CloudWatch dashboard
+- `AgentHeartbeat`
+- `InternetReachable`
+- `InternetLatency`
+- `InternetPacketLoss`
+- `LiveboxReachable`
+- `MiWifiReachable`
+- `DnsSuccess`
+- `DnsDuration`
+- `CpuPercent`
+- `MemoryPercent`
+- `DiskPercent`
 
-Dashboard name:
+Boolean values are represented as `1` for healthy/successful and `0` for unavailable/failed.
+
+### Dedicated heartbeat
+
+Each successfully processed telemetry event emits:
 
 ```text
-HomePulse-Network-Dashboard
+AgentHeartbeat = 1
 ```
 
-Latency and resource metrics use five-minute periods with the `Average` statistic. Status metrics use five-minute periods with the `Minimum` statistic.
+`HomePulse-Agent-Telemetry-Missing` evaluates the heartbeat over five-minute periods and enters `ALARM` after two consecutive missing/breaching periods. This provides an end-to-end signal across the agent, MQTT publication, IoT routing, Lambda processing, and CloudWatch metric publication.
 
-The dashboard definition is stored in [`dashboard/homepulse-dashboard.json`](dashboard/homepulse-dashboard.json).
+## Monitoring and alerting
 
-## CloudWatch alarms
+The CloudWatch dashboard includes:
 
-Configured and tested alarms:
+- current network status
+- Internet packet loss
+- Internet and DNS latency
+- monitoring-agent CPU, memory and disk utilisation
+- agent heartbeat
+
+Terraform manages these alarms:
 
 - `HomePulse-Agent-Telemetry-Missing`
 - `HomePulse-Internet-Unavailable`
 - `HomePulse-MiWifi-Unavailable`
+- `HomePulse-Lambda-Errors`
+- `HomePulse-Lambda-Throttles`
 
-A high-latency alarm is documented as a future enhancement.
+Alarm and recovery state changes are sent to the `homepulse-alerts` SNS topic. The email subscription itself is confirmed manually.
 
-CloudWatch sends `ALARM` and `OK` state-change notifications through Amazon SNS.
+## Structured logging
 
-## Requirements
+The agent and Lambda emit single-line JSON logs with event names and contextual fields.
 
-- macOS or Linux
-- Python 3
-- AWS account
-- AWS IoT Core Thing and active certificate
-- restricted AWS IoT policy
-- AWS IoT Rule
-- AWS Lambda function
-- Amazon DynamoDB table
-- Amazon CloudWatch dashboard and alarms
-- Amazon SNS topic with confirmed email subscription
-- network access to the local router and access point
-
-Python dependencies are listed in `requirements.txt`:
+Examples include:
 
 ```text
-awsiotsdk
-psutil
-python-dotenv
+agent_starting
+mqtt_connected
+telemetry_collected
+telemetry_published
+telemetry_processing_started
+telemetry_stored
+metrics_published
+telemetry_processing_succeeded
+telemetry_validation_failed
+dynamodb_write_failed
+cloudwatch_publish_failed
 ```
+
+This makes logs easier to filter and query in CloudWatch Logs Insights.
+
+## Infrastructure as Code
+
+The main Terraform stack is in:
+
+```text
+infrastructure/terraform/
+```
+
+It manages:
+
+- IoT topic rule and Lambda invocation permission
+- Lambda function and execution IAM
+- DynamoDB table and data lifecycle controls
+- CloudWatch dashboard and alarms
+- SNS alert topic
+- SQS failure queue
+- Lambda asynchronous failure destination
+
+AWS IoT device provisioning (Thing/certificate/device publishing policy) is intentionally outside the current main Terraform stack.
+
+### Bootstrap stacks
+
+Foundational resources are separated from application infrastructure:
+
+```text
+infrastructure/bootstrap/state-backend/
+infrastructure/bootstrap/github-oidc/
+```
+
+`state-backend` creates the S3 bucket used for Terraform remote state with:
+
+- versioning
+- AES-256 server-side encryption
+- public-access blocking
+- `prevent_destroy`
+
+`github-oidc` creates:
+
+- the GitHub OIDC identity provider
+- the GitHub Actions deployment role
+- permissions for the Terraform state bucket
+- permissions required to manage HomePulse infrastructure
+
+The bootstrap stacks are applied manually and are not deployed by the main CD workflow.
+
+## Remote Terraform state
+
+The main stack uses a partial S3 backend configuration:
+
+```hcl
+terraform {
+  backend "s3" {}
+}
+```
+
+A local or CI/CD backend configuration supplies values such as:
+
+```hcl
+bucket       = "homepulse-terraform-state-UNIQUE_SUFFIX"
+key          = "homepulse/prod/terraform.tfstate"
+region       = "eu-central-1"
+encrypt      = true
+use_lockfile = true
+```
+
+Never commit the real backend configuration or Terraform state files.
+
+## Automated tests
+
+Tests are implemented with `pytest`.
+
+### Unit tests
+
+The suite covers areas including:
+
+- telemetry collection structure
+- ping success, failure and timeout parsing
+- structured agent logging
+- Lambda telemetry validation
+- structured Lambda logging
+- DynamoDB failures
+- CloudWatch API and connectivity failures
+- DynamoDB TTL calculation and storage
+- heartbeat metric publication
+
+### Terraform integration tests
+
+The integration suite checks all three Terraform directories:
+
+```text
+infrastructure/terraform
+infrastructure/bootstrap/state-backend
+infrastructure/bootstrap/github-oidc
+```
+
+It verifies:
+
+- directories exist
+- `terraform fmt -check` passes
+- `terraform validate` passes
+
+## Continuous Integration
+
+`.github/workflows/ci.yml` runs on:
+
+- pushes to `main`
+- `feature/**` branches
+- `fix/**` branches
+- pull requests targeting `main`
+- manual dispatch
+
+The pipeline contains three jobs:
+
+```text
+Python tests
+Terraform validation
+        \
+         -> Full test suite with coverage
+        /
+```
+
+Terraform is initialized with `-backend=false` during CI so validation does not require access to production state or AWS deployment credentials.
+
+## Automated deployment
+
+`.github/workflows/deploy.yaml` runs after a successful `Continuous Integration` workflow on `main`, or through manual dispatch.
+
+The deployment job:
+
+1. checks out the tested revision
+2. enters the protected `production` GitHub environment
+3. requests a GitHub OIDC token
+4. assumes `HomePulseGitHubActionsDeploymentRole`
+5. receives short-lived AWS credentials through STS
+6. initializes the real S3 Terraform backend
+7. checks formatting and validates Terraform
+8. creates and displays a saved Terraform plan
+9. applies that exact plan
+10. runs `terraform plan -detailed-exitcode` to verify post-deployment convergence
+
+No long-lived AWS access keys are stored in GitHub.
+
+## Security controls
+
+- MQTT over mutual TLS
+- local X.509 certificate/private-key storage
+- restricted IoT publishing permissions
+- Lambda execution role with service-specific permissions
+- encrypted S3 Terraform state with versioning
+- S3 state lock file
+- GitHub OIDC instead of static AWS credentials
+- OIDC trust restricted to the repository's production environment subject
+- short-lived STS deployment sessions
+- protected production GitHub environment
+- encrypted SQS failure queue
+- DynamoDB deletion protection and PITR
+- secrets, local configuration, state and plans excluded by `.gitignore`
 
 ## Repository structure
 
 ```text
 homepulse-aws/
-├── README.md
-├── agent.py
-├── requirements.txt
-├── config.env.example
-├── .gitignore
+├── .github/
+│   └── workflows/
+│       ├── ci.yml
+│       └── deploy.yaml
+├── architecture/
+│   ├── architecture.drawio
+│   └── architecture.png
 ├── cloud/
 │   └── lambda/
 │       ├── README.md
 │       └── lambda_function.py
-├── architecture/
-│   ├── architecture.drawio
-│   └── architecture.png
-└── dashboard/
-    └── homepulse-dashboard.json
+├── dashboard/
+│   └── homepulse-dashboard.json
+├── infrastructure/
+│   ├── bootstrap/
+│   │   ├── github-oidc/
+│   │   └── state-backend/
+│   └── terraform/
+├── tests/
+│   ├── integration/
+│   ├── unit/
+│   └── conftest.py
+├── agent.py
+├── config.env.example
+├── pytest.ini
+├── requirements.txt
+├── requirements-dev.txt
+└── README.md
 ```
 
-## Local setup
+## Local agent setup
 
 ```bash
 git clone https://github.com/Mibiss/homepulse-aws.git
 cd homepulse-aws
+
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r requirements.txt
+
 cp config.env.example config.env
+```
+
+Populate `config.env` with your own IoT endpoint, device certificate paths and local network addresses, then run:
+
+```bash
 python3 agent.py
 ```
 
-## Lambda configuration
+Do not commit `config.env`, private keys or certificates.
 
-Required environment variable:
+## Run tests locally
 
-```text
-DYNAMODB_TABLE=homepulse-network-metrics
+Install development dependencies:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
 ```
 
-Optional environment variables:
+Run all tests:
 
-```text
-METRIC_NAMESPACE=HomePulse
-ALLOWED_DEVICES=homepulse-agent-01
+```bash
+pytest -v
 ```
 
-The Lambda role permits `dynamodb:PutItem`, `cloudwatch:PutMetricData` for the `HomePulse` namespace, and standard CloudWatch Logs operations.
+Run only unit tests:
 
-Detailed Lambda configuration, IAM policies, deployment, validation, input/output and testing instructions are documented in [`cloud/lambda/README.md`](cloud/lambda/README.md).
-
-## Testing completed
-
-The end-to-end pipeline, DynamoDB storage, custom metrics, dashboard, SNS delivery, outage alarms and recovery notifications have been tested successfully.
-
-## Security
-
-Never commit private keys, AWS credentials, real local configuration, Terraform state or virtual environments.
-
-This project also keeps device certificates and CA files outside the repository to simplify certificate management.
-
-Recommended `.gitignore` additions include:
-
-```gitignore
-.venv/
-config.env
-.env
-.env.*
-certificates/
-*.pem
-*.key
-*.crt
-*.tfstate
-*.tfstate.*
-cloud/lambda/*.zip
+```bash
+pytest tests/unit -v
 ```
 
-## Roadmap
+Run Terraform integration tests:
 
-### Version 1
+```bash
+pytest tests/integration/test_terraform_configuration.py -v
+```
 
-- [x] Monitoring agent
-- [x] AWS IoT ingestion
-- [x] Lambda and DynamoDB
-- [x] CloudWatch metrics and dashboard
-- [x] CloudWatch alarms and SNS email notifications
-- [x] Final architecture diagram
-- [x] Project documentation polish
+## Terraform checks
 
-### Version 2
+```bash
+terraform fmt -check -diff -recursive infrastructure
+```
 
-- Infrastructure as Code
-- Automated tests
-- Structured logging improvements
-- Lambda failure handling
-- DynamoDB retention strategy
-- Dedicated heartbeat metric
-- CI pipeline
-- Automated deployment
+For local validation, initialize each configuration first, then run `terraform validate`.
+
+The main application stack uses a remote backend for real planning and deployment. Bootstrap stacks are managed separately.
+
+## Project evolution
+
+### Phase 1 — Working observability platform
+
+- [x] Python monitoring agent
+- [x] AWS IoT Core ingestion
+- [x] Lambda processing
+- [x] DynamoDB telemetry storage
+- [x] CloudWatch custom metrics and dashboard
+- [x] CloudWatch availability alarms
+- [x] SNS outage and recovery notifications
+- [x] End-to-end telemetry validation
+
+### Phase 2 — Production-style engineering improvements
+
+- [x] Infrastructure as Code with Terraform
+- [x] Remote Terraform state
+- [x] Automated unit and infrastructure tests
+- [x] Structured JSON logging
+- [x] Lambda failure classification and retries
+- [x] SQS on-failure destination
+- [x] DynamoDB 90-day TTL retention
+- [x] DynamoDB 35-day PITR
+- [x] DynamoDB deletion protection
+- [x] Dedicated heartbeat metric and alarm
+- [x] Lambda error and throttle alarms
+- [x] GitHub Actions CI pipeline
+- [x] GitHub OIDC federation to AWS
+- [x] Automated Terraform deployment
+- [x] Post-deployment convergence verification
 
 ## Licence
-
-This project is intended for educational and portfolio use.
 
 This project is licensed under the MIT License. See [`LICENSE`](LICENSE) for details.
