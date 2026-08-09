@@ -96,22 +96,43 @@ resource "aws_iam_role_policy" "terraform_state" {
 
 data "aws_iam_policy_document" "homepulse_deployment" {
   statement {
-    sid    = "ManageHomePulseServices"
+    sid    = "ManageHomePulseCloudWatchAlarms"
     effect = "Allow"
 
     actions = [
-      # CloudWatch dashboards and alarms
       "cloudwatch:DeleteAlarms",
-      "cloudwatch:DeleteDashboards",
       "cloudwatch:DescribeAlarms",
-      "cloudwatch:GetDashboard",
-      "cloudwatch:ListTagsForResource",
-      "cloudwatch:PutDashboard",
       "cloudwatch:PutMetricAlarm",
       "cloudwatch:TagResource",
       "cloudwatch:UntagResource",
+    ]
 
-      # DynamoDB table lifecycle
+    resources = [
+      "arn:${data.aws_partition.current.partition}:cloudwatch:${var.aws_region}:${data.aws_caller_identity.current.account_id}:alarm:HomePulse-*",
+    ]
+  }
+
+  statement {
+    sid    = "ManageHomePulseCloudWatchDashboard"
+    effect = "Allow"
+
+    actions = [
+      "cloudwatch:DeleteDashboards",
+      "cloudwatch:GetDashboard",
+      "cloudwatch:PutDashboard",
+    ]
+
+    resources = [
+      "arn:${data.aws_partition.current.partition}:cloudwatch::${data.aws_caller_identity.current.account_id}:dashboard/*",
+    ]
+  }
+
+  statement {
+    sid    = "ManageHomePulseDynamoDB"
+    effect = "Allow"
+
+    # DynamoDB table lifecycle
+    actions = [
       "dynamodb:CreateTable",
       "dynamodb:DeleteTable",
       "dynamodb:DescribeContinuousBackups",
@@ -123,8 +144,19 @@ data "aws_iam_policy_document" "homepulse_deployment" {
       "dynamodb:UpdateContinuousBackups",
       "dynamodb:UpdateTable",
       "dynamodb:UpdateTimeToLive",
+    ]
 
-      # IoT topic rule
+    resources = [
+      "arn:${data.aws_partition.current.partition}:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/homepulse-*",
+    ]
+  }
+
+  statement {
+    sid    = "ManageHomePulseIot"
+    effect = "Allow"
+
+    # IoT topic rule
+    actions = [
       "iot:CreateTopicRule",
       "iot:DeleteTopicRule",
       "iot:DisableTopicRule",
@@ -135,8 +167,17 @@ data "aws_iam_policy_document" "homepulse_deployment" {
       "iot:ReplaceTopicRule",
       "iot:TagResource",
       "iot:UntagResource",
+    ]
 
-      # Lambda lifecycle
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ManageHomePulseLambda"
+    effect = "Allow"
+
+    # Lambda lifecycle
+    actions = [
       "lambda:AddPermission",
       "lambda:CreateFunction",
       "lambda:DeleteFunction",
@@ -154,8 +195,20 @@ data "aws_iam_policy_document" "homepulse_deployment" {
       "lambda:UntagResource",
       "lambda:UpdateFunctionCode",
       "lambda:UpdateFunctionConfiguration",
+    ]
 
-      # SNS topic
+    resources = [
+      "arn:${data.aws_partition.current.partition}:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:homepulse-*",
+    ]
+  }
+
+
+  statement {
+    sid    = "ManageHomePulseSns"
+    effect = "Allow"
+
+    # SNS topic
+    actions = [
       "sns:CreateTopic",
       "sns:DeleteTopic",
       "sns:GetTopicAttributes",
@@ -163,8 +216,19 @@ data "aws_iam_policy_document" "homepulse_deployment" {
       "sns:SetTopicAttributes",
       "sns:TagResource",
       "sns:UntagResource",
+    ]
 
-      # SQS queue
+    resources = [
+      "arn:${data.aws_partition.current.partition}:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:homepulse-*",
+    ]
+  }
+
+  statement {
+    sid    = "ManageHomePulseSqs"
+    effect = "Allow"
+
+    # SQS queue
+    actions = [
       "sqs:CreateQueue",
       "sqs:DeleteQueue",
       "sqs:GetQueueAttributes",
@@ -176,7 +240,7 @@ data "aws_iam_policy_document" "homepulse_deployment" {
     ]
 
     resources = [
-      "*",
+      "arn:${data.aws_partition.current.partition}:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:homepulse-*",
     ]
   }
 
