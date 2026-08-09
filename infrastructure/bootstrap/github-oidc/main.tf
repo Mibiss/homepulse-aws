@@ -131,6 +131,7 @@ data "aws_iam_policy_document" "homepulse_deployment" {
       "iot:EnableTopicRule",
       "iot:GetTopicRule",
       "iot:ListTagsForResource",
+      "iot:ListTopicRules",
       "iot:ReplaceTopicRule",
       "iot:TagResource",
       "iot:UntagResource",
