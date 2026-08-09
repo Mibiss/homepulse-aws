@@ -141,6 +141,7 @@ data "aws_iam_policy_document" "homepulse_deployment" {
       "lambda:DeleteFunction",
       "lambda:DeleteFunctionEventInvokeConfig",
       "lambda:GetFunction",
+      "lambda:GetFunctionCodeSigningConfig",
       "lambda:GetFunctionConfiguration",
       "lambda:GetFunctionEventInvokeConfig",
       "lambda:GetPolicy",
