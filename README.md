@@ -63,6 +63,8 @@ flowchart TD
     L --> M[Post-deployment convergence check]
 ```
 
+![architecture](architecture/architecture.drawio)
+
 The monitoring agent only requires outbound connectivity to AWS. No inbound router ports or port-forwarding rules are required.
 
 ## Monitoring agent
